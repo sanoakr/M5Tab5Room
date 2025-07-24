@@ -56,6 +56,7 @@ public:
     void startCameraCapture(lv_obj_t* imgCanvas) override;
     void stopCameraCapture() override;
     bool isCameraCapturing() override;
+    void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height);
 
     void setSpeakerVolume(uint8_t volume) override;
     uint8_t getSpeakerVolume() override;

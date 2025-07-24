@@ -30,6 +30,9 @@
 #include "imlib.h"
 #include "freertos/queue.h"
 
+// 外部からアクセス可能なカメラフレーム更新関数の宣言
+extern void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height);
+
 #define CAMERA_WIDTH  1280
 #define CAMERA_HEIGHT 720
 
@@ -315,6 +318,9 @@ void app_camera_display(void* arg)
                                             .byte_swap      = false,
                                             .mode           = PPA_TRANS_MODE_BLOCKING};
         ppa_do_scale_rotate_mirror(ppa_srm_handle, &srm_config);
+
+        // Webストリーミング用にフレームデータを更新
+        updateCameraFrameForStreaming(img_show_data, 1280, 720);
 
         // auto detect_results = human_face_detector->run(dl_img); // format: hwc
 
