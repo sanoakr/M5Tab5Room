@@ -58,6 +58,13 @@ public:
     bool isCameraCapturing() override;
     void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height) override;
 
+    // サーバ管理カメラ用関数
+    bool shouldInitializeCamera();
+    bool shouldStartCamera();
+    esp_err_t initCameraIfNeeded();
+    esp_err_t startCameraIfNeeded();
+    void onHaiCameraClosed();
+
     void setSpeakerVolume(uint8_t volume) override;
     uint8_t getSpeakerVolume() override;
     void audioRecord(std::vector<int16_t>& data, uint16_t durationMs, float gain = 80.0f) override;

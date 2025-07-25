@@ -368,32 +368,29 @@ void app_camera_display(void* arg)
 
 void HalEsp32::startCameraCapture(lv_obj_t* imgCanvas)
 {
-    mclog::tagInfo(TAG, "start camera capture");
-
-    camera_canvas = imgCanvas;
-
-    queue_camera_ctrl = xQueueCreate(10, sizeof(int));
-    if (queue_camera_ctrl == NULL) {
-        ESP_LOGD(TAG, "Failed to create semaphore\n");
-    }
-
-    is_camera_capturing = true;
+    mclog::tagInfo(TAG, "Camera capture disabled to prevent system crash");
+    
+    // hal_cameraの起動を無効化（システムクラッシュ防止のため）
+    // WiFiストリーミングが既に実際のカメラデータを配信中
+    ESP_LOGI(TAG, "Camera capture is disabled - use WiFi streaming instead");
+    
+    camera_canvas = nullptr;
+    is_camera_capturing = false;
+    
+    return; // 早期リターンでカメラ初期化を回避
     xTaskCreatePinnedToCore(app_camera_display, "cam", 8 * 1024, this, 5, NULL, 1);
 }
 
 void HalEsp32::stopCameraCapture()
 {
-    mclog::tagInfo(TAG, "stop camera capture");
-
-    int control_state = 0;  // pause
-    xQueueSend(queue_camera_ctrl, &control_state, portMAX_DELAY);
-
-    control_state = 2;  // exit
-    xQueueSend(queue_camera_ctrl, &control_state, portMAX_DELAY);
+    mclog::tagInfo(TAG, "Camera capture stop (disabled)");
+    
+    // カメラキャプチャが無効化されているため何もしない
+    ESP_LOGI(TAG, "Camera capture is disabled - no action needed");
 }
 
 bool HalEsp32::isCameraCapturing()
 {
-    std::lock_guard<std::mutex> lock(camera_mutex);
-    return is_camera_capturing;
+    // 常にfalseを返す（カメラキャプチャ無効化）
+    return false;
 }

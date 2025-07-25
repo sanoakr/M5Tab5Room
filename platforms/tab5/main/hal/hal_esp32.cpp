@@ -385,8 +385,38 @@ void HalEsp32::gpioReset(uint8_t pin)
 
 // カメラストリーミング関数（hal_wifi.cppで定義されたものを呼び出し）
 extern void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height);
+extern bool shouldInitializeCamera();
+extern bool shouldStartCamera();
+extern esp_err_t initCameraIfNeeded();
+extern esp_err_t startCameraIfNeeded();
+extern void onHaiCameraClosed();
 
 void HalEsp32::updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height)
 {
     ::updateCameraFrameForStreaming(frameBuffer, width, height);
+}
+
+bool HalEsp32::shouldInitializeCamera()
+{
+    return ::shouldInitializeCamera();
+}
+
+bool HalEsp32::shouldStartCamera()
+{
+    return ::shouldStartCamera();
+}
+
+esp_err_t HalEsp32::initCameraIfNeeded()
+{
+    return ::initCameraIfNeeded();
+}
+
+esp_err_t HalEsp32::startCameraIfNeeded()
+{
+    return ::startCameraIfNeeded();
+}
+
+void HalEsp32::onHaiCameraClosed()
+{
+    ::onHaiCameraClosed();
 }

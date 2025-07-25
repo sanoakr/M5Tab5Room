@@ -17,7 +17,7 @@
 
 static const char* TAG = "audio";
 
-static uint8_t _current_speaker_volume = 80;
+static uint8_t _current_speaker_volume = 25;  // デフォルト音量を80から25に減少
 
 void HalEsp32::setSpeakerVolume(uint8_t volume)
 {
@@ -388,7 +388,24 @@ void HalEsp32::stopPlayMusicTest()
 void HalEsp32::playStartupSfx()
 {
     std::lock_guard<std::mutex> lock(_music_test_data.mutex);
+    
+    // スタートアップ時の音量を一時的に小さくする
+    uint8_t original_volume = _current_speaker_volume;
+    uint8_t startup_volume = std::min((uint8_t)10, original_volume); // 最大10に制限してより静かに
+    
+    if (original_volume > startup_volume) {
+        _current_speaker_volume = startup_volume;
+        mclog::tagInfo(TAG, "Startup SFX volume reduced to: {}% (original: {}%)", startup_volume, original_volume);
+    }
+    
     try_create_music_play_task(MP3_PLAY_TARGET_STARTUP_SFX);
+    
+    // 音楽再生開始後に元の音量に戻す（非同期で実行）
+    std::thread([original_volume]() {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2000)); // 2秒後に復元
+        _current_speaker_volume = original_volume;
+        mclog::tagInfo(TAG, "Volume restored to: {}%", original_volume);
+    }).detach();
 }
 
 void HalEsp32::playShutdownSfx()
