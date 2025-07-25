@@ -80,9 +80,11 @@ public:
         }
 
         if (!_is_camera_opened) {
-            GetHAL()->startCameraCapture(_camera_canvas->get());
-            _is_camera_opened = true;
-            _camera_canvas->setOpa(255);
+            // hal_cameraが無効化されているため、カメラ開始を試行しない
+            mclog::tagWarn(_tag, "Camera capture disabled - hal_camera module is disabled for system stability");
+            _label_msg->setText("Camera Disabled");
+            _is_camera_opened = true; // フラグを設定してループを回避
+            // カメラキャンバスを表示せず、メッセージのみ表示
         }
     }
 
@@ -117,14 +119,13 @@ void PanelCamera::init()
     _btn_camera = std::make_unique<Container>(lv_screen_active());
     _btn_camera->align(LV_ALIGN_CENTER, 598, 10);
     _btn_camera->setSize(83, 97);
-    _btn_camera->setOpa(0);
+    _btn_camera->setOpa(100); // 半透明にして無効状態を示す
+    
+    // hal_cameraが無効化されているため、カメラボタンを無効化
     _btn_camera->onClick().connect([&] {
-        audio::play_next_tone_progression();
-
-        // Create window
-        _window = std::make_unique<CameraWindow>();
-        _window->init(lv_screen_active());
-        _window->open();
+        mclog::tagWarn(_tag, "Camera feature is currently disabled for system stability");
+        mclog::tagInfo(_tag, "hal_camera module has been disabled to prevent system crashes");
+        // カメラウィンドウは作成しない
     });
 }
 
