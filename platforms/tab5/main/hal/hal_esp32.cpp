@@ -382,3 +382,11 @@ void HalEsp32::gpioReset(uint8_t pin)
 {
     gpio_set_level((gpio_num_t)pin, false);
 }
+
+// カメラストリーミング関数（hal_wifi.cppで定義されたものを呼び出し）
+extern void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height);
+
+void HalEsp32::updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height)
+{
+    ::updateCameraFrameForStreaming(frameBuffer, width, height);
+}

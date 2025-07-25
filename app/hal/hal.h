@@ -258,6 +258,11 @@ public:
     {
     }
 
+    /* --------------------------------- Camera --------------------------------- */
+    virtual void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height)
+    {
+    }
+
     /* --------------------------------- SD Card -------------------------------- */
     struct FileEntry_t {
         std::string name;

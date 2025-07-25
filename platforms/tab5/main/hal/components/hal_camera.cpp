@@ -30,9 +30,6 @@
 #include "imlib.h"
 #include "freertos/queue.h"
 
-// 外部からアクセス可能なカメラフレーム更新関数の宣言
-extern void updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height);
-
 #define CAMERA_WIDTH  1280
 #define CAMERA_HEIGHT 720
 
@@ -220,6 +217,7 @@ static cam_t* camera       = NULL;
 
 void app_camera_display(void* arg)
 {
+    HalEsp32* hal_instance = static_cast<HalEsp32*>(arg);
     /* camera config */
     static esp_video_init_csi_config_t csi_config = {
         .sccb_config =
@@ -320,7 +318,7 @@ void app_camera_display(void* arg)
         ppa_do_scale_rotate_mirror(ppa_srm_handle, &srm_config);
 
         // Webストリーミング用にフレームデータを更新
-        updateCameraFrameForStreaming(img_show_data, 1280, 720);
+        hal_instance->updateCameraFrameForStreaming(img_show_data, 1280, 720);
 
         // auto detect_results = human_face_detector->run(dl_img); // format: hwc
 
@@ -380,7 +378,7 @@ void HalEsp32::startCameraCapture(lv_obj_t* imgCanvas)
     }
 
     is_camera_capturing = true;
-    xTaskCreatePinnedToCore(app_camera_display, "cam", 8 * 1024, NULL, 5, NULL, 1);
+    xTaskCreatePinnedToCore(app_camera_display, "cam", 8 * 1024, this, 5, NULL, 1);
 }
 
 void HalEsp32::stopCameraCapture()
