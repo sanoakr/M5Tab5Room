@@ -297,6 +297,9 @@ private:
     std::unique_ptr<smooth_ui_toolkit::lvgl_cpp::Image> _img_bg;
     std::vector<std::unique_ptr<PanelBase>> _panels;
 
+    // 日本語テキストボックス
+    lv_obj_t* _jp_textbox = nullptr;
+
     void update_anim();
 };
 

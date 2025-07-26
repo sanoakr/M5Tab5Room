@@ -8,6 +8,7 @@
 #include <hal/hal.h>
 #include <mooncake_log.h>
 #include <assets/assets.h>
+#include "japanese_font32.h"
 #include <smooth_ui_toolkit.h>
 #include <smooth_lvgl.h>
 #include <apps/utils/audio/audio.h>
@@ -54,6 +55,16 @@ void LauncherView::init()
 
     for (auto& panel : _panels) {
         panel->init();
+    }
+
+    // 日本語テキストボックスの作成
+    if (!_jp_textbox) {
+        _jp_textbox = lv_textarea_create(lv_screen_active());
+        lv_obj_set_size(_jp_textbox, 400, 80); // サイズは適宜調整
+        lv_obj_align(_jp_textbox, LV_ALIGN_TOP_MID, 0, 40); // 画面上部中央に配置
+        lv_textarea_set_text(_jp_textbox, "あいうえお");
+        lv_obj_set_style_text_font(_jp_textbox, get_japanese_font32(), 0);
+        lv_obj_set_style_text_align(_jp_textbox, LV_TEXT_ALIGN_CENTER, 0);
     }
 }
 

@@ -18,6 +18,7 @@ add_subdirectory(dependencies/mooncake_log)
 set(SMOOTH_UI_TOOLKIT_BUILD_EXAMPLE OFF)
 add_subdirectory(dependencies/smooth_ui_toolkit)
 
+
 # App layer
 file(GLOB_RECURSE APP_LAYER_SRCS
     app/*.c
@@ -27,6 +28,9 @@ file(GLOB_RECURSE APP_LAYER_SRCS
 set(APP_LAYER_INCS
     app/
 )
+
+# 日本語フォント
+add_subdirectory(../../app/assets app/assets_build)
 
 # Lvgl
 set(LV_CONF_INCLUDE_SIMPLE OFF)
@@ -65,6 +69,7 @@ target_link_libraries(app_desktop_build PUBLIC
     ${SDL2_LIBRARIES}
     smooth_ui_toolkit
     pthread
+    japanese_font32
 )
 
 # 设置构建路径
