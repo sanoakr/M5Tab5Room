@@ -299,7 +299,11 @@ private:
 
     // 日本語テキストボックス
     lv_obj_t* _jp_textbox = nullptr;
-    
+    lv_obj_t* _label_main = nullptr;
+    lv_obj_t* _label_top = nullptr;
+    lv_obj_t* _label_sub1 = nullptr;
+    lv_obj_t* _label_sub2 = nullptr;
+
     // 日本語ボタン（あいうえお）
     lv_obj_t* _jp_buttons[5] = {nullptr};
 
