@@ -299,6 +299,9 @@ private:
 
     // 日本語テキストボックス
     lv_obj_t* _jp_textbox = nullptr;
+    
+    // 日本語ボタン（あいうえお）
+    lv_obj_t* _jp_buttons[5] = {nullptr};
 
     void update_anim();
 };
