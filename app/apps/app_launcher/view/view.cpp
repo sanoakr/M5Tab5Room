@@ -85,14 +85,14 @@ void LauncherView::init()
 
         // top
         _label_top = lv_label_create(_jp_textbox);
-        lv_label_set_text(_label_top, "あいうえお");
+        lv_label_set_text(_label_top, "さのは（おそらく）");
         lv_obj_set_style_text_font(_label_top, get_japanese_font64(), 0);
         lv_obj_set_style_text_align(_label_top, LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align(_label_top, LV_ALIGN_TOP_LEFT, 0, -40); // Y座標を少し上に
+        lv_obj_align(_label_top, LV_ALIGN_TOP_LEFT, 0, 0);
 
         // main
         _label_main = lv_label_create(_jp_textbox);
-        lv_label_set_text(_label_main, "あいうえお");
+        lv_label_set_text(_label_main, "在室中です");
         lv_obj_set_style_text_font(_label_main, get_japanese_font128(), 0);
         lv_obj_set_style_text_align(_label_main, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_align_to(_label_main, _label_top, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 70);
@@ -102,13 +102,13 @@ void LauncherView::init()
         lv_label_set_text(_label_sub1, "あいうえおあいうえおあいうえお");
         lv_obj_set_style_text_font(_label_sub1, get_japanese_font64(), 0);
         lv_obj_set_style_text_align(_label_sub1, LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align_to(_label_sub1, _label_main, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 30);
-        // sub2
-        _label_sub2 = lv_label_create(_jp_textbox);
-        lv_label_set_text(_label_sub2, "あいうえおあいうえおあいうえお");
-        lv_obj_set_style_text_font(_label_sub2, get_japanese_font64(), 0);
-        lv_obj_set_style_text_align(_label_sub2, LV_TEXT_ALIGN_LEFT, 0);
-        lv_obj_align_to(_label_sub2, _label_sub1, LV_ALIGN_OUT_BOTTOM_LEFT, 0, -30);
+        lv_obj_align_to(_label_sub1, _label_main, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 70);
+    // sub2
+    //     _label_sub2 = lv_label_create(_jp_textbox);
+    //     lv_label_set_text(_label_sub2, "あいうえおあいうえおあいうえお");
+    //     lv_obj_set_style_text_font(_label_sub2, get_japanese_font64(), 0);
+    //     lv_obj_set_style_text_align(_label_sub2, LV_TEXT_ALIGN_LEFT, 0);
+    //     lv_obj_align_to(_label_sub2, _label_sub1, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 20);
     }
 
     // ボタンをテキストボックス外・画面最下部に配置
