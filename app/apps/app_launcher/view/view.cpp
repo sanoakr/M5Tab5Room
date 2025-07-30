@@ -113,7 +113,7 @@ void LauncherView::init()
 
     // ボタンをテキストボックス外・画面最下部に配置
     // テキストボックスの横幅に合わせて均等配置
-    const char* button_texts[] = {"あああ", "いいい", "ううう", "えええ", "おおお"};
+    const char* button_texts[] = {"在室", "不在", "学内", "ミーティング", "オンライン"};
     int btn_left_margin = 0;
     int btn_right_margin = 20;
     int btn_button_width = 146;
@@ -152,8 +152,8 @@ void LauncherView::init()
         lv_label_set_text(label, button_texts[i]);
         lv_obj_set_style_text_font(label, get_japanese_font32(), 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-        // 上下中央揃えを確実にする
-        lv_obj_set_style_pad_ver(label, (btn_height - 32) / 2, 0); // 32はフォント高さ目安
+        // 32pxフォントに対応した中央配置
+        lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         lv_obj_center(label);
 
         // ボタンのスタイル設定
