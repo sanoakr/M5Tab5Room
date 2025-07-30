@@ -32,6 +32,8 @@
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <inttypes.h>
+#include <esp_pm.h>
+#include <esp_sleep.h>
 
 #define TAG "wifi"
 
@@ -144,12 +146,12 @@ static camera_frame_t g_camera_frame = {
 #define WIFI_SSID    "M5Tab5-UserDemo-WiFi"
 #define WIFI_PASS    ""
 #define MAX_STA_CONN 4
-#define JPEG_ENC_QUALITY 80
+#define JPEG_ENC_QUALITY 60  // 電力消費軽減のため品質を下げる
 #define PART_BOUNDARY "123456789000000000000987654321"
 
 // サポートされる最大解像度（ESP32P4 JPEGエンコーダーの制限）
 // ドキュメントのパフォーマンステーブルに基づく最小安全サイズ
-#define MAX_ENCODE_WIDTH  320  // 320x480が最小のサポートサイズ
+#define MAX_ENCODE_WIDTH  320  // 320x240が最小のサポートサイズ
 #define MAX_ENCODE_HEIGHT 240  // アスペクト比を考慮した240
 #define MIN_ENCODE_WIDTH  320  // 最小幅（安全な値）
 #define MIN_ENCODE_HEIGHT 240  // 最小高さ（安全な値）
@@ -907,7 +909,8 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
                 ESP_LOGI(TAG, "Calling jpeg_encoder_process...");
                 uint32_t start_time = xTaskGetTickCount();
                 
-                // JPEG処理前にyieldして他のタスクに時間を与える
+                // 電力消費軽減：JPEG処理前に処理間隔を延長
+                vTaskDelay(pdMS_TO_TICKS(50)); // 50ms追加遅延で電力消費を軽減
                 taskYIELD();
                 
                 res = jpeg_encoder_process(g_camera_frame.jpeg_handle, &jpeg_cfg, 
