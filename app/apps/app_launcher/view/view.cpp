@@ -92,23 +92,23 @@ void LauncherView::init()
 
         // main
         _label_main = lv_label_create(_jp_textbox);
-        lv_label_set_text(_label_main, "在室中です");
+        lv_label_set_text(_label_main, "不在です");
         lv_obj_set_style_text_font(_label_main, get_japanese_font128(), 0);
         lv_obj_set_style_text_align(_label_main, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_align_to(_label_main, _label_top, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 70);
 
         // sub1
         _label_sub1 = lv_label_create(_jp_textbox);
-        lv_label_set_text(_label_sub1, "あいうえおあいうえおあいうえお");
+        lv_label_set_text(_label_sub1, "（学外にいます）");
         lv_obj_set_style_text_font(_label_sub1, get_japanese_font64(), 0);
         lv_obj_set_style_text_align(_label_sub1, LV_TEXT_ALIGN_LEFT, 0);
         lv_obj_align_to(_label_sub1, _label_main, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 70);
     // sub2
-    //     _label_sub2 = lv_label_create(_jp_textbox);
-    //     lv_label_set_text(_label_sub2, "あいうえおあいうえおあいうえお");
-    //     lv_obj_set_style_text_font(_label_sub2, get_japanese_font64(), 0);
-    //     lv_obj_set_style_text_align(_label_sub2, LV_TEXT_ALIGN_LEFT, 0);
-    //     lv_obj_align_to(_label_sub2, _label_sub1, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 20);
+        _label_sub2 = lv_label_create(_jp_textbox);
+        lv_label_set_text(_label_sub2, "");
+        lv_obj_set_style_text_font(_label_sub2, get_japanese_font64(), 0);
+        lv_obj_set_style_text_align(_label_sub2, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align_to(_label_sub2, _label_sub1, LV_ALIGN_OUT_BOTTOM_LEFT, 0, 20);
     }
 
     // ボタンをテキストボックス外・画面最下部に配置
@@ -139,6 +139,23 @@ void LauncherView::init()
     lv_obj_set_flex_flow(btn_container, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
+    // ボタンごとの色設定
+    uint32_t button_colors[] = {
+        0x4CAF50, // 在室: 緑（在室を表す）
+        0xF44336, // 不在: 赤（不在を表す）
+        0xFF9800, // 学内: オレンジ（学内活動を表す）
+        0x2196F3, // ミーティング: 青（会議・作業を表す）
+        0x9C27B0  // オンライン: 紫（デジタル環境を表す）
+    };
+    
+    uint32_t button_border_colors[] = {
+        0x2E7D32, // 在室: 濃い緑
+        0xC62828, // 不在: 濃い赤
+        0xE65100, // 学内: 濃いオレンジ
+        0x1565C0, // ミーティング: 濃い青
+        0x6A1B9A  // オンライン: 濃い紫
+    };
+
     for (int i = 0; i < num_buttons; i++) {
         _jp_buttons[i] = lv_btn_create(btn_container);
         int width = btn_width;
@@ -152,28 +169,64 @@ void LauncherView::init()
         lv_label_set_text(label, button_texts[i]);
         lv_obj_set_style_text_font(label, get_japanese_font32(), 0);
         lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_set_style_text_color(label, lv_color_white(), 0); // 文字色を明示的に白に設定
         // 32pxフォントに対応した中央配置
         lv_obj_set_size(label, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
         lv_obj_center(label);
 
-        // ボタンのスタイル設定
-        lv_obj_set_style_bg_color(_jp_buttons[i], lv_color_hex(0x4A90E2), 0);
+        // ボタンのスタイル設定（各ボタン固有の色）
+        lv_obj_set_style_bg_color(_jp_buttons[i], lv_color_hex(button_colors[i]), 0);
         lv_obj_set_style_bg_opa(_jp_buttons[i], LV_OPA_90, 0);
         lv_obj_set_style_radius(_jp_buttons[i], 8, 0);
         lv_obj_set_style_border_width(_jp_buttons[i], 2, 0);
-        lv_obj_set_style_border_color(_jp_buttons[i], lv_color_hex(0x2E5C8A), 0);
+        lv_obj_set_style_border_color(_jp_buttons[i], lv_color_hex(button_border_colors[i]), 0);
 
         // ボタンのクリックイベントを設定
         lv_obj_add_event_cb(_jp_buttons[i], [](lv_event_t* e) {
             lv_obj_t* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
             lv_obj_t* label = lv_obj_get_child(btn, 0);
-            const char* text = lv_label_get_text(label);
-
-            // テキストボックスの内容を変更
+            const char* button_text = lv_label_get_text(label);
+            
             LauncherView* view = static_cast<LauncherView*>(lv_event_get_user_data(e));
-            if (view && view->_label_main) {
-                lv_label_set_text(view->_label_main, text);
+            if (!view || !view->_label_main || !view->_label_sub1) return;
+            
+            // ボタンごとの表示テキストと色設定
+            const char* main_text = "";
+            const char* sub_text = "";
+            uint32_t text_color = 0xFFFFFF; // デフォルト白
+            
+            if (strcmp(button_text, "在室") == 0) {
+                main_text = "在室中です";
+                sub_text = "";
+                text_color = 0x66BB6A; // 明るい緑（グレー背景で見やすい）
             }
+            else if (strcmp(button_text, "不在") == 0) {
+                main_text = "不在です";
+                sub_text = "（学外にいます）";
+                text_color = 0xEF5350; // 明るい赤（グレー背景で見やすい）
+            }
+            else if (strcmp(button_text, "学内") == 0) {
+                main_text = "学内にいます";
+                sub_text = "";
+                text_color = 0xFFB74D; // 明るいオレンジ（グレー背景で見やすい）
+            }
+            else if (strcmp(button_text, "ミーティング") == 0) {
+                main_text = "ミーティング中です";
+                sub_text = "（在室しています）";
+                text_color = 0x42A5F5; // 明るい青（グレー背景で見やすい）
+            }
+            else if (strcmp(button_text, "オンライン") == 0) {
+                main_text = "オンライン中です";
+                sub_text = "（オンライン会議・授業中）";
+                text_color = 0xAB47BC; // 明るい紫（グレー背景で見やすい）
+            }
+            
+            // テキストと色を設定
+            lv_label_set_text(view->_label_main, main_text);
+            lv_obj_set_style_text_color(view->_label_main, lv_color_hex(text_color), 0);
+            
+            lv_label_set_text(view->_label_sub1, sub_text);
+            lv_obj_set_style_text_color(view->_label_sub1, lv_color_hex(text_color), 0);
         }, LV_EVENT_CLICKED, this);
     }
 }
