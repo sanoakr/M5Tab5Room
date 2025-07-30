@@ -528,7 +528,7 @@ skip_v4l2_init:
                 srm_config.out.block_offset_y = 0;
                 srm_config.out.srm_cm = PPA_SRM_COLOR_MODE_RGB565;
                 
-                srm_config.rotation_angle = PPA_SRM_ROTATION_ANGLE_0;
+                srm_config.rotation_angle = PPA_SRM_ROTATION_ANGLE_180;
                 srm_config.scale_x = 1;
                 srm_config.scale_y = 1;
                 srm_config.mirror_x = true;

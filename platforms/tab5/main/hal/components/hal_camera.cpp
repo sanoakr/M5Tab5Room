@@ -307,7 +307,7 @@ void app_camera_display(void* arg)
                                                                .block_offset_x = 0,
                                                                .block_offset_y = 0,
                                                                .srm_cm         = PPA_SRM_COLOR_MODE_RGB565},
-                                            .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
+                                            .rotation_angle = PPA_SRM_ROTATION_ANGLE_180,
                                             .scale_x        = 1,
                                             .scale_y        = 1,
                                             .mirror_x       = true,
