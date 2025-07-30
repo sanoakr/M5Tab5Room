@@ -502,7 +502,7 @@ skip_v4l2_init:
             
             if (ioctl(g_camera_frame.v4l2_camera->fd, VIDIOC_DQBUF, &buf) != 0) {
                 ESP_LOGE(TAG, "Failed to receive video frame from V4L2");
-                vTaskDelay(pdMS_TO_TICKS(33));
+                vTaskDelay(pdMS_TO_TICKS(200)); // 約5fps
                 continue;
             }
             
@@ -631,7 +631,7 @@ skip_v4l2_init:
             }
         }
         
-        vTaskDelay(pdMS_TO_TICKS(33)); // 約30fps
+        vTaskDelay(pdMS_TO_TICKS(200)); // 約5fps
     }
     
     ESP_LOGI(TAG, "Direct V4L2 camera capture task ended - total frames: %lu", frame_counter);
@@ -716,7 +716,7 @@ void camera_auto_capture_task(void* param) {
             xSemaphoreGive(g_camera_frame.frame_mutex);
         }
         
-        vTaskDelay(pdMS_TO_TICKS(33)); // 約30fps
+        vTaskDelay(pdMS_TO_TICKS(200)); // 約5fps
     }
     
     ESP_LOGI(TAG, "Camera auto capture task ended - final stats: Real camera: %lu, Wait attempts: %lu", 
@@ -775,7 +775,7 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
     // MJPEG ヘッダー送信
     httpd_resp_set_type(req, stream_content_type);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "X-Framerate", "30");
+    httpd_resp_set_hdr(req, "X-Framerate", "5");
     
     // 最初のバウンダリを送信
     if (httpd_resp_send_chunk(req, stream_boundary, strlen(stream_boundary)) != ESP_OK) {
@@ -907,6 +907,9 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
                 ESP_LOGI(TAG, "Calling jpeg_encoder_process...");
                 uint32_t start_time = xTaskGetTickCount();
                 
+                // JPEG処理前にyieldして他のタスクに時間を与える
+                taskYIELD();
+                
                 res = jpeg_encoder_process(g_camera_frame.jpeg_handle, &jpeg_cfg, 
                                          encode_buffer, encode_buffer_size,
                                          g_camera_frame.jpeg_out_buf, g_camera_frame.jpeg_out_buf_size, 
@@ -962,7 +965,7 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
             ESP_LOGW(TAG, "Failed to acquire mutex or mutex is null");
         }
         
-        vTaskDelay(pdMS_TO_TICKS(33)); // 約30fps
+        vTaskDelay(pdMS_TO_TICKS(200)); // 約5fps
     }
     
     ESP_LOGI(TAG, "Camera stream handler ended");
@@ -1076,13 +1079,13 @@ httpd_handle_t start_webserver()
         if (!g_camera_frame.auto_capture_enabled) {
             init_auto_camera();
             if (g_camera_frame.capture_task_handle == NULL) {
-                xTaskCreate(camera_auto_capture_task, "cam_auto", 4096, NULL, 5, &g_camera_frame.capture_task_handle);
+                xTaskCreate(camera_auto_capture_task, "cam_auto", 8192, NULL, 5, &g_camera_frame.capture_task_handle);
                 ESP_LOGI(TAG, "Camera auto capture task started");
             }
             
             // 独立カメラ制御タスクを開始
             if (g_camera_frame.direct_camera_task_handle == NULL) {
-                xTaskCreate(direct_camera_capture_task, "cam_direct", 8192, NULL, 6, &g_camera_frame.direct_camera_task_handle);
+                xTaskCreate(direct_camera_capture_task, "cam_direct", 12288, NULL, 6, &g_camera_frame.direct_camera_task_handle);
                 ESP_LOGI(TAG, "Direct camera capture task started - real camera data only (no test patterns)");
             }
         }
@@ -1159,7 +1162,7 @@ bool HalEsp32::wifi_init()
     }
     ESP_ERROR_CHECK(ret);
 
-    xTaskCreate(wifi_ap_test_task, "ap", 4096, nullptr, 5, nullptr);
+    xTaskCreate(wifi_ap_test_task, "ap", 8192, nullptr, 5, nullptr);
     return true;
 }
 

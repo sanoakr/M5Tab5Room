@@ -343,7 +343,7 @@ void app_camera_display(void* arg)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(200)); // 約5fps
     }
 
     ESP_LOGI(TAG, "task exit");
