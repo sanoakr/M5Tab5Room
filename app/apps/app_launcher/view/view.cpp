@@ -15,6 +15,8 @@
 #include <smooth_lvgl.h>
 #include <apps/utils/audio/audio.h>
 
+// WiFi関数はHAL経由で呼び出す
+
 using namespace launcher_view;
 using namespace smooth_ui_toolkit;
 using namespace smooth_ui_toolkit::lvgl_cpp;
@@ -183,9 +185,11 @@ void LauncherView::init()
 
         // ボタンのクリックイベントを設定
         lv_obj_add_event_cb(_jp_buttons[i], [](lv_event_t* e) {
+            printf("=== BUTTON CLICKED EVENT TRIGGERED ===\n");
             lv_obj_t* btn = static_cast<lv_obj_t*>(lv_event_get_target(e));
             lv_obj_t* label = lv_obj_get_child(btn, 0);
             const char* button_text = lv_label_get_text(label);
+            printf("Button text: %s\n", button_text);
             
             LauncherView* view = static_cast<LauncherView*>(lv_event_get_user_data(e));
             if (!view || !view->_label_main || !view->_label_sub1) return;
@@ -211,7 +215,7 @@ void LauncherView::init()
                 text_color = 0xFFB74D; // 明るいオレンジ（グレー背景で見やすい）
             }
             else if (strcmp(button_text, "ミーティング") == 0) {
-                main_text = "ミーティング中です";
+                main_text = "ミーティング中";
                 sub_text = "（在室しています）";
                 text_color = 0x42A5F5; // 明るい青（グレー背景で見やすい）
             }
@@ -227,8 +231,19 @@ void LauncherView::init()
             
             lv_label_set_text(view->_label_sub1, sub_text);
             lv_obj_set_style_text_color(view->_label_sub1, lv_color_hex(text_color), 0);
+            
+            // デバッグ用ログ出力
+            printf("Button clicked: %s -> %s, %s (0x%06X)\n", button_text, main_text, sub_text, (unsigned int)text_color);
+            
+            // Webページのステータスも更新（HAL経由）
+            GetHAL()->updateWebPageStatus(main_text, sub_text, text_color);
         }, LV_EVENT_CLICKED, this);
     }
+    
+    // テスト用: 初期化時にステータス更新をテスト
+    printf("LauncherView::init() - Testing updateWebPageStatus...\n");
+    GetHAL()->updateWebPageStatus("テスト中です", "（初期化テスト）", 0x00FF00);
+    printf("LauncherView::init() - Test completed\n");
 }
 
 void LauncherView::update()

@@ -82,6 +82,9 @@ public:
     void setExtAntennaEnable(bool enable) override;
     bool getExtAntennaEnable() override;
     void startWifiAp() override;
+    
+    // WiFi status update function
+    void updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color) override;
 
     bool isSdCardMounted() override;
     std::vector<FileEntry_t> scanSdCard(const std::string& dirPath) override;

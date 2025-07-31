@@ -64,6 +64,23 @@ typedef enum {
     EXAMPLE_VIDEO_FMT_YUV420 = V4L2_PIX_FMT_YUV420,
 } example_fmt_t;
 
+// ステータス管理用
+typedef struct {
+    char name[64];
+    char main_status[128];
+    char sub_status[128];
+    uint32_t color;
+    SemaphoreHandle_t status_mutex;
+} status_data_t;
+
+static status_data_t g_status_data = {
+    .name = "さのは（おそらく）",
+    .main_status = "不在です",
+    .sub_status = "（学外にいます）",
+    .color = 0xEF5350, // 赤色
+    .status_mutex = nullptr
+};
+
 // カメラフレーム共有用
 typedef struct {
     uint8_t* frame_buffer;
@@ -975,6 +992,51 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
     return res;
 }
 
+// ステータス更新API
+esp_err_t status_api_handler(httpd_req_t* req)
+{
+    ESP_LOGI(TAG, "Status API handler called");
+    
+    // ミューテックスが初期化されていない場合は初期化する
+    if (g_status_data.status_mutex == NULL) {
+        ESP_LOGW(TAG, "Status mutex not initialized in API handler, creating new mutex");
+        g_status_data.status_mutex = xSemaphoreCreateMutex();
+        if (g_status_data.status_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create status mutex in API handler");
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Status mutex creation error");
+            return ESP_FAIL;
+        }
+    }
+    
+    if (xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        char json_response[512];
+        snprintf(json_response, sizeof(json_response), 
+                "{"
+                "\"name\":\"%s\","
+                "\"main_status\":\"%s\","
+                "\"sub_status\":\"%s\","
+                "\"color\":\"#%06lX\""
+                "}", 
+                g_status_data.name, 
+                g_status_data.main_status, 
+                g_status_data.sub_status,
+                g_status_data.color);
+        
+        xSemaphoreGive(g_status_data.status_mutex);
+        
+        ESP_LOGI(TAG, "Status API response: %s", json_response);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send(req, json_response, HTTPD_RESP_USE_STRLEN);
+        return ESP_OK;
+    }
+    
+    ESP_LOGE(TAG, "Failed to take status mutex in API handler");
+    httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Status mutex error");
+    return ESP_FAIL;
+}
+
 // HTTP 处理函数
 esp_err_t hello_get_handler(httpd_req_t* req)
 {
@@ -982,7 +1044,9 @@ esp_err_t hello_get_handler(httpd_req_t* req)
         <!DOCTYPE html>
         <html>
         <head>
-            <title>Hello</title>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>M5Stack TAB5 Streaming RoomSign</title>
             <style>
                 body {
                     display: flex;
@@ -1004,12 +1068,158 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                     color: #666;
                     margin-top: 10px;
                 }
+                .stream-container {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    margin-top: 32px;
+                    background: #fff;
+                    border-radius: 16px;
+                    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+                    padding: 24px 32px;
+                }
+                #camera-stream {
+                    max-width: 90vw;
+                    max-height: 60vh;
+                    border: 2px solid #333;
+                    border-radius: 8px;
+                    background: #222;
+                    display: block;
+                    margin-bottom: 16px;
+                }
+                .toggle-switch {
+                    position: relative;
+                    display: inline-block;
+                    width: 80px;
+                    height: 40px;
+                    background-color: #ccc;
+                    border-radius: 20px;
+                    cursor: pointer;
+                    transition: background-color 0.3s ease;
+                }
+                .toggle-switch.active {
+                    background-color: #1976d2;
+                }
+                .toggle-slider {
+                    position: absolute;
+                    top: 2px;
+                    left: 2px;
+                    width: 36px;
+                    height: 36px;
+                    background-color: white;
+                    border-radius: 50%;
+                    transition: left 0.3s ease;
+                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+                }
+                .toggle-switch.active .toggle-slider {
+                    left: 42px;
+                }
+                .toggle-label {
+                    margin-bottom: 8px;
+                    font-size: 14px;
+                    color: #333;
+                    text-align: center;
+                }
+                .status-display {
+                    margin-top: 32px;
+                    padding: 24px 32px;
+                    background: #fff;
+                    border-radius: 16px;
+                    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+                    text-align: center;
+                    max-width: 600px;
+                }
+                .status-name {
+                    font-size: 20px;
+                    color: #666;
+                    margin-bottom: 16px;
+                }
+                .status-main {
+                    font-size: 48px;
+                    font-weight: bold;
+                    margin-bottom: 12px;
+                    color: #EF5350;
+                }
+                .status-sub {
+                    font-size: 24px;
+                    color: #666;
+                }
             </style>
+            <script>
+                function toggleStream() {
+                    var img = document.getElementById('camera-stream');
+                    var toggle = document.getElementById('toggle-switch');
+                    
+                    // Toggle the active class
+                    if (toggle.classList.contains('active')) {
+                        toggle.classList.remove('active');
+                        img.style.display = 'none';
+                    } else {
+                        toggle.classList.add('active');
+                        img.style.display = 'block';
+                    }
+                }
+                
+                function updateStatus() {
+                    console.log('Fetching status from /api/status...');
+                    fetch('/api/status')
+                        .then(response => {
+                            console.log('Status API response status:', response.status);
+                            if (!response.ok) {
+                                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            console.log('Status data received:', data);
+                            document.getElementById('status-name').textContent = data.name;
+                            document.getElementById('status-main').textContent = data.main_status;
+                            document.getElementById('status-sub').textContent = data.sub_status;
+                            document.getElementById('status-main').style.color = data.color;
+                            document.getElementById('status-sub').style.color = data.color;
+                            console.log('Status updated successfully');
+                        })
+                        .catch(error => {
+                            console.error('Status update error:', error);
+                            console.error('Error details:', {
+                                message: error.message,
+                                stack: error.stack
+                            });
+                        });
+                }
+                
+                document.addEventListener('DOMContentLoaded', function() {
+                    console.log('DOM loaded, initializing page...');
+                    var toggle = document.getElementById('toggle-switch');
+                    toggle.addEventListener('click', toggleStream);
+                    // Start with stream visible
+                    toggle.classList.add('active');
+                    console.log('Stream toggle initialized');
+                    
+                    // Update status every 500ms for real-time responsiveness
+                    console.log('Starting status updates every 500ms');
+                    updateStatus();
+                    setInterval(updateStatus, 500);
+                    console.log('Page initialization complete');
+                });
+            </script>
         </head>
         <body>
-            <h1>Hello World</h1>
-            <p>From M5Tab5</p>
-            <p><a href="/stream">Camera Live Stream</a></p>
+            <h1>Tab5 RoomSign</h1>
+            <p>From M5StackTab5</p>
+            <div class="stream-container">
+                <img id="camera-stream" src="/stream" alt="Camera Stream">
+                <div class="toggle-label">Camera Stream</div>
+                <div id="toggle-switch" class="toggle-switch">
+                    <div class="toggle-slider"></div>
+                </div>
+            </div>
+            <div class="status-display">
+                <div id="status-name" class="status-name">さのは（おそらく）</div>
+                <div id="status-main" class="status-main">不在です</div>
+                <div id="status-sub" class="status-sub">（学外にいます）</div>
+            </div>
         </body>
         </html>
     )rawliteral";
@@ -1022,6 +1232,7 @@ esp_err_t hello_get_handler(httpd_req_t* req)
 // URI 路由
 httpd_uri_t hello_uri = {.uri = "/", .method = HTTP_GET, .handler = hello_get_handler, .user_ctx = nullptr};
 httpd_uri_t camera_stream_uri = {.uri = "/stream", .method = HTTP_GET, .handler = camera_stream_handler, .user_ctx = nullptr};
+httpd_uri_t status_api_uri = {.uri = "/api/status", .method = HTTP_GET, .handler = status_api_handler, .user_ctx = nullptr};
 
 // 启动 Web Server
 httpd_handle_t start_webserver()
@@ -1033,6 +1244,12 @@ httpd_handle_t start_webserver()
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &hello_uri);
         httpd_register_uri_handler(server, &camera_stream_uri);
+        httpd_register_uri_handler(server, &status_api_uri);
+        
+        // ステータス管理用のmutex初期化
+        if (g_status_data.status_mutex == NULL) {
+            g_status_data.status_mutex = xSemaphoreCreateMutex();
+        }
         
         // フレーム共有用のmutex初期化
         if (g_camera_frame.frame_mutex == NULL) {
@@ -1186,6 +1403,15 @@ void HalEsp32::startWifiAp()
     wifi_init();
 }
 
+// Forward declaration for updateRoomSignStatus
+extern "C" void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color);
+
+void HalEsp32::updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color)
+{
+    printf("HalEsp32::updateWebPageStatus called: %s - %s (color: #%06X)\n", main_status, sub_status, (unsigned int)color);
+    updateRoomSignStatus(main_status, sub_status, color);
+}
+
 // カメラ停止を通知する関数（カメラコンポーネントから呼ばれる）
 void notifyCameraStop()
 {
@@ -1241,6 +1467,36 @@ esp_err_t startCameraIfNeeded() {
 void onHaiCameraClosed() {
     ESP_LOGI(TAG, "hai_camera: Application closed, but keeping camera running for streaming");
     // カメラは停止しない - 配信を継続
+}
+
+// ステータス更新関数（view.cppから呼ばれる）
+extern "C" void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color) {
+    ESP_LOGI(TAG, "updateRoomSignStatus called: %s - %s (color: #%06" PRIx32 ")", main_status, sub_status, color);
+    
+    // ミューテックスが初期化されていない場合は初期化する
+    if (g_status_data.status_mutex == NULL) {
+        ESP_LOGW(TAG, "Status mutex not initialized, creating new mutex");
+        g_status_data.status_mutex = xSemaphoreCreateMutex();
+        if (g_status_data.status_mutex == NULL) {
+            ESP_LOGE(TAG, "Failed to create status mutex");
+            return;
+        }
+    }
+    
+    if (xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        strncpy(g_status_data.main_status, main_status, sizeof(g_status_data.main_status) - 1);
+        g_status_data.main_status[sizeof(g_status_data.main_status) - 1] = '\0';
+        
+        strncpy(g_status_data.sub_status, sub_status, sizeof(g_status_data.sub_status) - 1);
+        g_status_data.sub_status[sizeof(g_status_data.sub_status) - 1] = '\0';
+        
+        g_status_data.color = color;
+        
+        xSemaphoreGive(g_status_data.status_mutex);
+        ESP_LOGI(TAG, "Room sign status updated successfully: %s - %s (color: #%06" PRIx32 ")", main_status, sub_status, color);
+    } else {
+        ESP_LOGE(TAG, "Failed to take status mutex");
+    }
 }
 
 // カメラフレームデータを更新する関数（hai_cameraからの呼び出し用）
