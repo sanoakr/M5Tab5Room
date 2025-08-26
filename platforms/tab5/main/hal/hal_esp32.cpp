@@ -391,6 +391,9 @@ extern esp_err_t initCameraIfNeeded();
 extern esp_err_t startCameraIfNeeded();
 extern void onHaiCameraClosed();
 
+// forward declaration for wifi module status updater implemented in hal_wifi.cpp
+extern void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color);
+
 void HalEsp32::updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t width, uint32_t height)
 {
     ::updateCameraFrameForStreaming(frameBuffer, width, height);
@@ -399,6 +402,13 @@ void HalEsp32::updateCameraFrameForStreaming(uint8_t* frameBuffer, uint32_t widt
 bool HalEsp32::shouldInitializeCamera()
 {
     return ::shouldInitializeCamera();
+}
+
+// Update the web page status by delegating to wifi module implementation
+void HalEsp32::updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color)
+{
+    mclog::tagInfo(_tag, "updateWebPageStatus called: {} - {} (color: 0x{:06X})", main_status, sub_status, color);
+    updateRoomSignStatus(main_status, sub_status, color);
 }
 
 bool HalEsp32::shouldStartCamera()

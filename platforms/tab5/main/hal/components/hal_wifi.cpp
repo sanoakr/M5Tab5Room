@@ -995,27 +995,14 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
 // ステータス更新API
 esp_err_t status_api_handler(httpd_req_t* req)
 {
-    ESP_LOGI(TAG, "Status API handler called");
-    
-    // ミューテックスが初期化されていない場合は初期化する
-    if (g_status_data.status_mutex == NULL) {
-        ESP_LOGW(TAG, "Status mutex not initialized in API handler, creating new mutex");
-        g_status_data.status_mutex = xSemaphoreCreateMutex();
-        if (g_status_data.status_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create status mutex in API handler");
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Status mutex creation error");
-            return ESP_FAIL;
-        }
-    }
-    
-    if (xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+    if (g_status_data.status_mutex && xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         char json_response[512];
         snprintf(json_response, sizeof(json_response), 
                 "{"
                 "\"name\":\"%s\","
                 "\"main_status\":\"%s\","
                 "\"sub_status\":\"%s\","
-                "\"color\":\"#%06lX\""
+                "\"color\":\"#%06" PRIX32 "\""
                 "}", 
                 g_status_data.name, 
                 g_status_data.main_status, 
@@ -1024,15 +1011,12 @@ esp_err_t status_api_handler(httpd_req_t* req)
         
         xSemaphoreGive(g_status_data.status_mutex);
         
-        ESP_LOGI(TAG, "Status API response: %s", json_response);
-        
         httpd_resp_set_type(req, "application/json");
         httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
         httpd_resp_send(req, json_response, HTTPD_RESP_USE_STRLEN);
         return ESP_OK;
     }
     
-    ESP_LOGE(TAG, "Failed to take status mutex in API handler");
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Status mutex error");
     return ESP_FAIL;
 }
@@ -1162,46 +1146,29 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 }
                 
                 function updateStatus() {
-                    console.log('Fetching status from /api/status...');
                     fetch('/api/status')
-                        .then(response => {
-                            console.log('Status API response status:', response.status);
-                            if (!response.ok) {
-                                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-                            }
-                            return response.json();
-                        })
+                        .then(response => response.json())
                         .then(data => {
-                            console.log('Status data received:', data);
                             document.getElementById('status-name').textContent = data.name;
                             document.getElementById('status-main').textContent = data.main_status;
                             document.getElementById('status-sub').textContent = data.sub_status;
                             document.getElementById('status-main').style.color = data.color;
                             document.getElementById('status-sub').style.color = data.color;
-                            console.log('Status updated successfully');
                         })
                         .catch(error => {
                             console.error('Status update error:', error);
-                            console.error('Error details:', {
-                                message: error.message,
-                                stack: error.stack
-                            });
                         });
                 }
                 
                 document.addEventListener('DOMContentLoaded', function() {
-                    console.log('DOM loaded, initializing page...');
                     var toggle = document.getElementById('toggle-switch');
                     toggle.addEventListener('click', toggleStream);
                     // Start with stream visible
                     toggle.classList.add('active');
-                    console.log('Stream toggle initialized');
                     
-                    // Update status every 500ms for real-time responsiveness
-                    console.log('Starting status updates every 500ms');
+                    // Update status every 2 seconds
                     updateStatus();
-                    setInterval(updateStatus, 500);
-                    console.log('Page initialization complete');
+                    setInterval(updateStatus, 2000);
                 });
             </script>
         </head>
@@ -1403,15 +1370,6 @@ void HalEsp32::startWifiAp()
     wifi_init();
 }
 
-// Forward declaration for updateRoomSignStatus
-extern "C" void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color);
-
-void HalEsp32::updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color)
-{
-    printf("HalEsp32::updateWebPageStatus called: %s - %s (color: #%06X)\n", main_status, sub_status, (unsigned int)color);
-    updateRoomSignStatus(main_status, sub_status, color);
-}
-
 // カメラ停止を通知する関数（カメラコンポーネントから呼ばれる）
 void notifyCameraStop()
 {
@@ -1470,20 +1428,8 @@ void onHaiCameraClosed() {
 }
 
 // ステータス更新関数（view.cppから呼ばれる）
-extern "C" void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color) {
-    ESP_LOGI(TAG, "updateRoomSignStatus called: %s - %s (color: #%06" PRIx32 ")", main_status, sub_status, color);
-    
-    // ミューテックスが初期化されていない場合は初期化する
-    if (g_status_data.status_mutex == NULL) {
-        ESP_LOGW(TAG, "Status mutex not initialized, creating new mutex");
-        g_status_data.status_mutex = xSemaphoreCreateMutex();
-        if (g_status_data.status_mutex == NULL) {
-            ESP_LOGE(TAG, "Failed to create status mutex");
-            return;
-        }
-    }
-    
-    if (xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color) {
+    if (g_status_data.status_mutex && xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
         strncpy(g_status_data.main_status, main_status, sizeof(g_status_data.main_status) - 1);
         g_status_data.main_status[sizeof(g_status_data.main_status) - 1] = '\0';
         
@@ -1493,9 +1439,7 @@ extern "C" void updateRoomSignStatus(const char* main_status, const char* sub_st
         g_status_data.color = color;
         
         xSemaphoreGive(g_status_data.status_mutex);
-        ESP_LOGI(TAG, "Room sign status updated successfully: %s - %s (color: #%06" PRIx32 ")", main_status, sub_status, color);
-    } else {
-        ESP_LOGE(TAG, "Failed to take status mutex");
+    ESP_LOGI(TAG, "Room sign status updated: %s - %s (color: #%06" PRIX32 ")", main_status, sub_status, color);
     }
 }
 
