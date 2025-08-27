@@ -20,6 +20,7 @@
 #include <esp_netif.h>
 #include <esp_http_server.h>
 #include "driver/jpeg_encode.h"
+#include "driver/jpeg_types.h"
 #include "esp_cam_sensor.h"
 #include "esp_cam_sensor_detect.h"
 #include "sc202cs.h"
@@ -165,6 +166,139 @@ static camera_frame_t g_camera_frame = {
 #define MAX_STA_CONN 4
 #define JPEG_ENC_QUALITY 60  // 電力消費軽減のため品質を下げる
 #define PART_BOUNDARY "123456789000000000000987654321"
+
+// JPEGファイル保存用グローバル変数
+static uint8_t* stored_jpeg = nullptr;
+static size_t stored_jpeg_size = 0;
+static size_t stored_jpeg_buffer_size = 0;
+
+// RGB565画像を上下反転する関数
+esp_err_t flip_rgb565_image_vertical(uint8_t* image_data, uint32_t width, uint32_t height) {
+    if (!image_data || width == 0 || height == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    
+    uint16_t* pixels = (uint16_t*)image_data;
+    uint32_t row_size = width * sizeof(uint16_t);
+    
+    // 一時バッファを確保して行をスワップ
+    uint16_t* temp_row = (uint16_t*)malloc(row_size);
+    if (!temp_row) {
+        return ESP_ERR_NO_MEM;
+    }
+    
+    // 上半分と下半分の行を交換
+    for (uint32_t y = 0; y < height / 2; y++) {
+        uint32_t top_row_offset = y * width;
+        uint32_t bottom_row_offset = (height - 1 - y) * width;
+        
+        // 上の行を一時保存
+        memcpy(temp_row, &pixels[top_row_offset], row_size);
+        
+        // 下の行を上に移動
+        memcpy(&pixels[top_row_offset], &pixels[bottom_row_offset], row_size);
+        
+        // 一時保存した上の行を下に移動
+        memcpy(&pixels[bottom_row_offset], temp_row, row_size);
+    }
+    
+    free(temp_row);
+    return ESP_OK;
+}
+
+// 実際のカメラから画像を取得してJPEGにエンコードする関数
+esp_err_t capture_camera_frame_to_jpeg(size_t* jpeg_size)
+{
+    ESP_LOGI(TAG, "Starting camera frame capture");
+    
+    if (g_camera_frame.camera_fd <= 0) {
+        ESP_LOGE(TAG, "Camera not initialized, fd: %d", g_camera_frame.camera_fd);
+        return ESP_ERR_INVALID_STATE;
+    }
+    
+    // カメラから最新フレームを取得
+    struct v4l2_buffer buf = {};
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    buf.memory = MEMORY_TYPE;
+    
+    // デキューバッファ
+    if (ioctl(g_camera_frame.camera_fd, VIDIOC_DQBUF, &buf) == -1) {
+        ESP_LOGE(TAG, "Failed to dequeue camera buffer");
+        return ESP_FAIL;
+    }
+    
+    if (g_camera_frame.v4l2_camera && buf.index < EXAMPLE_VIDEO_BUFFER_COUNT) {
+        uint8_t* frame_data = g_camera_frame.v4l2_camera->buffer[buf.index];
+        size_t frame_size = buf.bytesused;
+        
+        ESP_LOGI(TAG, "Camera frame captured, size: %d bytes", (int)frame_size);
+        
+        // 画像を上下反転（逆さま問題の修正）
+        esp_err_t flip_ret = flip_rgb565_image_vertical(frame_data, 
+                                                       g_camera_frame.v4l2_camera->width,
+                                                       g_camera_frame.v4l2_camera->height);
+        if (flip_ret != ESP_OK) {
+            ESP_LOGW(TAG, "Failed to flip image vertically: %s", esp_err_to_name(flip_ret));
+        } else {
+            ESP_LOGI(TAG, "Image flipped vertically to correct orientation");
+        }
+        
+        // JPEGエンコード
+        if (g_camera_frame.jpeg_handle && stored_jpeg != nullptr && stored_jpeg_buffer_size > 0) {
+            ESP_LOGI(TAG, "Starting JPEG encoding - buffer: %p, size: %d", stored_jpeg, (int)stored_jpeg_buffer_size);
+            
+            jpeg_encode_cfg_t encode_cfg = {
+                .height = g_camera_frame.v4l2_camera->height,
+                .width = g_camera_frame.v4l2_camera->width,
+                .src_type = JPEG_ENCODE_IN_FORMAT_RGB565,
+                .sub_sample = JPEG_DOWN_SAMPLING_YUV420,
+                .image_quality = 60
+            };
+            
+            uint32_t output_size = 0;
+            esp_err_t ret = jpeg_encoder_process(g_camera_frame.jpeg_handle,
+                                               &encode_cfg,
+                                               frame_data,
+                                               frame_size,
+                                               stored_jpeg,
+                                               stored_jpeg_buffer_size,
+                                               &output_size);
+            
+            if (ret == ESP_OK && output_size > 0) {
+                *jpeg_size = output_size;
+                stored_jpeg_size = *jpeg_size;
+                ESP_LOGI(TAG, "JPEG encoding successful, size: %d bytes", (int)*jpeg_size);
+            } else {
+                ESP_LOGE(TAG, "JPEG encoding failed, error: %s", esp_err_to_name(ret));
+                *jpeg_size = 0;
+                ret = ESP_FAIL;
+            }
+            
+            // バッファを再度キューに戻す
+            if (ioctl(g_camera_frame.camera_fd, VIDIOC_QBUF, &buf) == -1) {
+                ESP_LOGW(TAG, "Failed to requeue camera buffer");
+            }
+            
+            return ret;
+        } else {
+            if (g_camera_frame.jpeg_handle == nullptr) {
+                ESP_LOGE(TAG, "JPEG encoder not initialized");
+            } else if (stored_jpeg == nullptr) {
+                ESP_LOGE(TAG, "JPEG encoder memory not allocated");
+            } else if (stored_jpeg_buffer_size == 0) {
+                ESP_LOGE(TAG, "JPEG encoder buffer size is zero");
+            }
+            // バッファを再度キューに戻す
+            if (ioctl(g_camera_frame.camera_fd, VIDIOC_QBUF, &buf) == -1) {
+                ESP_LOGW(TAG, "Failed to requeue camera buffer");
+            }
+            return ESP_ERR_INVALID_STATE;
+        }
+    } else {
+        ESP_LOGE(TAG, "Invalid camera buffer or index");
+        return ESP_FAIL;
+    }
+}
 
 // サポートされる最大解像度（ESP32P4 JPEGエンコーダーの制限）
 // ドキュメントのパフォーマンステーブルに基づく最小安全サイズ
@@ -437,80 +571,8 @@ void direct_camera_capture_task(void* param) {
     ESP_LOGI(TAG, "Allocated camera frame buffers: %" PRIu32 "x%" PRIu32 ", size=%d bytes", 
             (uint32_t)camera_width, (uint32_t)camera_height, (int)camera_frame_size);
     
-    // ESP32P4 Video systemを初期化（hal_cameraと同じ方法）
-    ESP_LOGI(TAG, "Initializing ESP32P4 V4L2 camera system");
-    
     uint32_t frame_counter = 0;  // 変数宣言を前に移動
     struct v4l2_buffer buf;
-    
-    if (!g_camera_frame.v4l2_camera_initialized) {
-        // hal_cameraと同じCSI設定を使用
-        esp_video_init_csi_config_t csi_config = {
-            .sccb_config = {
-                .init_sccb  = false,
-                .i2c_handle = bsp_i2c_get_handle(),
-                .freq       = 400000,
-            },
-            .reset_pin = -1,
-            .pwdn_pin  = -1,
-        };
-        
-        esp_video_init_config_t cam_config = {
-            .csi  = &csi_config,
-            .dvp  = NULL,
-            .jpeg = NULL,
-            .isp  = NULL
-        };
-        
-        ESP_LOGI(TAG, "Initializing ESP video system...");
-        esp_err_t video_init_result = esp_video_init(&cam_config);
-        if (video_init_result != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize ESP video system: %s", esp_err_to_name(video_init_result));
-            goto cleanup;
-        }
-        
-        ESP_LOGI(TAG, "Opening V4L2 camera device: %s", CAM_DEV_PATH);
-        int video_cam_fd = wifi_video_open((char*)CAM_DEV_PATH, EXAMPLE_VIDEO_FMT_RGB565);
-        if (video_cam_fd < 0) {
-            ESP_LOGW(TAG, "Failed to open V4L2 camera device - falling back to simulation mode");
-            // フォールバック：シミュレーションモードで継続
-            g_camera_frame.v4l2_camera_initialized = false;
-            g_camera_frame.camera_initialized = true;
-            g_camera_frame.camera_running = true;
-            goto skip_v4l2_init;
-        }
-        
-        ESP_LOGI(TAG, "Initializing camera structure...");
-        esp_err_t cam_init_result = wifi_new_cam(video_cam_fd, &g_camera_frame.v4l2_camera);
-        if (cam_init_result != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to initialize camera: %s", esp_err_to_name(cam_init_result));
-            close(video_cam_fd);
-            goto cleanup;
-        }
-        
-        // PPA（Picture Processing Accelerator）を初期化
-        ppa_client_config_t ppa_config = {
-            .oper_type = PPA_OPERATION_SRM,
-            .max_pending_trans_num = 1,
-            .data_burst_length = PPA_DATA_BURST_LENGTH_128
-        };
-        esp_err_t ppa_result = ppa_register_client(&ppa_config, &g_camera_frame.ppa_handle);
-        if (ppa_result != ESP_OK) {
-            ESP_LOGE(TAG, "Failed to register PPA client: %s", esp_err_to_name(ppa_result));
-            goto cleanup;
-        }
-        
-        g_camera_frame.v4l2_camera_initialized = true;
-        g_camera_frame.camera_initialized = true;
-        g_camera_frame.camera_running = true;
-        
-        ESP_LOGI(TAG, "V4L2 camera system initialized successfully - Real camera ready!");
-        ESP_LOGI(TAG, "Camera format: %" PRIu32 "x%" PRIu32 ", pixel_format: 0x%" PRIx32, 
-                g_camera_frame.v4l2_camera->width, g_camera_frame.v4l2_camera->height, 
-                g_camera_frame.v4l2_camera->pixel_format);
-    }
-    
-skip_v4l2_init:
     
     while (g_camera_frame.direct_camera_enabled && g_camera_frame.camera_running) {
         if (g_camera_frame.v4l2_camera_initialized) {
@@ -655,7 +717,6 @@ skip_v4l2_init:
     
     ESP_LOGI(TAG, "Direct V4L2 camera capture task ended - total frames: %lu", frame_counter);
     
-cleanup:
     // リソースを解放
     if (g_camera_frame.ppa_handle) {
         ppa_unregister_client(g_camera_frame.ppa_handle);
@@ -837,6 +898,103 @@ esp_err_t camera_stream_handler(httpd_req_t* req)
     return ESP_OK;
 }
 
+// 簡易SVGテストパターンを生成（ブラウザーで確実に表示できる形式）
+static const uint8_t* generate_test_image(size_t* image_size)
+{
+    static uint8_t test_image_data[10240]; // 10KB程度のテストデータ
+    
+    // SVG形式のテスト画像を生成
+    const char* svg_content = 
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+        "<svg width=\"320\" height=\"240\" xmlns=\"http://www.w3.org/2000/svg\">"
+        "<defs>"
+        "<linearGradient id=\"grad1\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">"
+        "<stop offset=\"0%\" style=\"stop-color:#ff6b6b;stop-opacity:1\" />"
+        "<stop offset=\"50%\" style=\"stop-color:#4ecdc4;stop-opacity:1\" />"
+        "<stop offset=\"100%\" style=\"stop-color:#45b7d1;stop-opacity:1\" />"
+        "</linearGradient>"
+        "</defs>"
+        "<rect width=\"100%\" height=\"100%\" fill=\"url(#grad1)\"/>"
+        "<circle cx=\"160\" cy=\"120\" r=\"40\" fill=\"white\" opacity=\"0.8\"/>"
+        "<text x=\"160\" y=\"130\" font-family=\"Arial, sans-serif\" font-size=\"16\" "
+        "fill=\"#333\" text-anchor=\"middle\">📷 Test</text>"
+        "<text x=\"160\" y=\"200\" font-family=\"Arial, sans-serif\" font-size=\"12\" "
+        "fill=\"white\" text-anchor=\"middle\">M5Stack TAB5 Camera</text>"
+        "</svg>";
+    
+    size_t content_length = strlen(svg_content);
+    if (content_length <= sizeof(test_image_data)) {
+        memcpy(test_image_data, svg_content, content_length);
+        *image_size = content_length;
+        return test_image_data;
+    }
+    
+    // エラー時はnullptrを返す
+    *image_size = 0;
+    return nullptr;
+}
+
+// 静止画取得API（実際のカメラからJPEG画像を取得して保存）
+esp_err_t camera_capture_handler(httpd_req_t* req)
+{
+    ESP_LOGI(TAG, "Camera capture request - capturing real camera image");
+    
+    // カメラから画像を取得
+    size_t image_size = 0;
+    esp_err_t ret = capture_camera_frame_to_jpeg(&image_size);
+    
+    if (ret == ESP_OK && image_size > 0) {
+        // 成功レスポンスを返す（画像ファイルパスを含む）
+        int64_t timestamp = esp_timer_get_time() / 1000;
+        char json_response[256];
+        snprintf(json_response, sizeof(json_response), 
+                "{"
+                "\"success\": true,"
+                "\"image_url\": \"/snapshot.jpg\","
+                "\"timestamp\": %lld,"
+                "\"size\": %d,"
+                "\"message\": \"Camera image captured\""
+                "}", 
+                timestamp, (int)image_size);
+        
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send(req, json_response, HTTPD_RESP_USE_STRLEN);
+        
+        ESP_LOGI(TAG, "Camera image captured, size: %d bytes, stored in global variable", (int)image_size);
+        ESP_LOGI(TAG, "Global stored_jpeg_size after capture: %d", (int)stored_jpeg_size);
+        return ESP_OK;
+    } else {
+        ESP_LOGE(TAG, "Camera capture failed, error: %s", esp_err_to_name(ret));
+        
+        char error_response[] = "{\"success\": false, \"message\": \"Camera capture failed\"}";
+        httpd_resp_set_type(req, "application/json");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send(req, error_response, HTTPD_RESP_USE_STRLEN);
+        return ESP_FAIL;
+    }
+}
+
+// JPEG画像配信ハンドラー
+esp_err_t image_file_handler(httpd_req_t* req)
+{
+    ESP_LOGI(TAG, "JPEG image file request received - stored_jpeg_size: %d", (int)stored_jpeg_size);
+    
+    if (stored_jpeg_size > 0) {
+        httpd_resp_set_type(req, "image/jpeg");
+        httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+        httpd_resp_send(req, (const char*)stored_jpeg, stored_jpeg_size);
+        
+        ESP_LOGI(TAG, "JPEG image sent, size: %d bytes", (int)stored_jpeg_size);
+        return ESP_OK;
+    } else {
+        ESP_LOGE(TAG, "No JPEG data available - stored_jpeg_size is 0");
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+}
+
 // ステータス更新API
 esp_err_t status_api_handler(httpd_req_t* req)
 {
@@ -908,47 +1066,23 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                     box-shadow: 0 2px 12px rgba(0,0,0,0.08);
                     padding: 24px 32px;
                 }
-                #camera-stream {
+                #camera-snapshot {
                     max-width: 90vw;
                     max-height: 60vh;
+                    width: 320px;
+                    height: 240px;
                     border: 2px solid #333;
                     border-radius: 8px;
-                    background: #222;
+                    background: #f5f5f5;
                     display: block;
                     margin-bottom: 16px;
+                    object-fit: cover;
                 }
-                .toggle-switch {
-                    position: relative;
-                    display: inline-block;
-                    width: 80px;
-                    height: 40px;
-                    background-color: #ccc;
-                    border-radius: 20px;
-                    cursor: pointer;
-                    transition: background-color 0.3s ease;
-                }
-                .toggle-switch.active {
-                    background-color: #1976d2;
-                }
-                .toggle-slider {
-                    position: absolute;
-                    top: 2px;
-                    left: 2px;
-                    width: 36px;
-                    height: 36px;
-                    background-color: white;
-                    border-radius: 50%;
-                    transition: left 0.3s ease;
-                    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                }
-                .toggle-switch.active .toggle-slider {
-                    left: 42px;
-                }
-                .toggle-label {
-                    margin-bottom: 8px;
-                    font-size: 14px;
-                    color: #333;
+                .snapshot-info {
+                    font-size: 12px;
+                    color: #666;
                     text-align: center;
+                    margin-top: 8px;
                 }
                 .status-display {
                     margin-top: 32px;
@@ -976,9 +1110,28 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 }
             </style>
             <script>
-                function toggleStream() {
-                    // カメラストリーミングは無効化されているため何もしない
-                    console.log('Camera streaming is disabled');
+                function captureSnapshot() {
+                    const img = document.getElementById('camera-snapshot');
+                    const info = document.getElementById('snapshot-info');
+                    
+                    info.textContent = 'スナップショット取得中...';
+                    
+                    fetch('/camera_capture')
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.success) {
+                                // JPEGファイルのURLにタイムスタンプを追加してキャッシュを回避
+                                img.src = data.image_url + '?t=' + data.timestamp;
+                                const now = new Date(data.timestamp);
+                                info.textContent = `スナップショット撮影時刻: ${now.toLocaleString('ja-JP')}`;
+                            } else {
+                                info.textContent = 'スナップショット取得に失敗しました';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Snapshot capture error:', error);
+                            info.textContent = 'スナップショット取得エラー';
+                        });
                 }
                 
                 function updateStatus() {
@@ -997,8 +1150,8 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 }
                 
                 document.addEventListener('DOMContentLoaded', function() {
-                    // カメラストリーミングは無効化されているためトグル機能なし
-                    console.log('Camera streaming disabled - no toggle functionality');
+                    // ページ読み込み時に静止画を取得
+                    captureSnapshot();
                     
                     // Update status every 2 seconds
                     updateStatus();
@@ -1010,14 +1163,11 @@ esp_err_t hello_get_handler(httpd_req_t* req)
             <h1>Tab5 RoomSign</h1>
             <p>From M5StackTab5</p>
             <div class="stream-container">
-                <div style="width: 320px; height: 240px; border: 2px solid #ff6b6b; border-radius: 8px; background: linear-gradient(45deg, #ff6b6b, #4ecdc4); display: flex; align-items: center; justify-content: center; margin-bottom: 16px;">
-                    <div style="text-align: center; color: white; font-weight: bold; text-shadow: 1px 1px 2px rgba(0,0,0,0.7);">
-                        📷 CAMERA DISABLED<br>
-                        <small>カメラ無効</small>
-                    </div>
-                </div>
-                <div class="toggle-label" style="color: #ff6b6b;">Camera Streaming Disabled</div>
-                <div style="font-size: 12px; color: #666; margin-top: 8px;">リアルカメラストリーミングは無効化されています</div>
+                <img id="camera-snapshot" alt="Camera Snapshot" src="" style="background: linear-gradient(45deg, #ff6b6b, #4ecdc4); display: flex; align-items: center; justify-content: center;">
+                <div id="snapshot-info" class="snapshot-info">ページ読み込み時のスナップショットを取得中...</div>
+                <button onclick="captureSnapshot()" style="margin-top: 12px; padding: 8px 16px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                    📷 新しいスナップショット
+                </button>
             </div>
             <div class="status-display">
                 <div id="status-name" class="status-name">さのは（おそらく）</div>
@@ -1036,6 +1186,8 @@ esp_err_t hello_get_handler(httpd_req_t* req)
 // URI 路由
 httpd_uri_t hello_uri = {.uri = "/", .method = HTTP_GET, .handler = hello_get_handler, .user_ctx = nullptr};
 httpd_uri_t camera_stream_uri = {.uri = "/stream", .method = HTTP_GET, .handler = camera_stream_handler, .user_ctx = nullptr};
+httpd_uri_t camera_capture_uri = {.uri = "/camera_capture", .method = HTTP_GET, .handler = camera_capture_handler, .user_ctx = nullptr};
+httpd_uri_t image_file_uri = {.uri = "/snapshot.jpg", .method = HTTP_GET, .handler = image_file_handler, .user_ctx = nullptr};
 httpd_uri_t status_api_uri = {.uri = "/api/status", .method = HTTP_GET, .handler = status_api_handler, .user_ctx = nullptr};
 
 // 启动 Web Server
@@ -1048,6 +1200,8 @@ httpd_handle_t start_webserver()
     if (httpd_start(&server, &config) == ESP_OK) {
         httpd_register_uri_handler(server, &hello_uri);
         httpd_register_uri_handler(server, &camera_stream_uri);
+        httpd_register_uri_handler(server, &camera_capture_uri);
+        httpd_register_uri_handler(server, &image_file_uri);
         httpd_register_uri_handler(server, &status_api_uri);
         
         // ステータス管理用のmutex初期化
@@ -1060,17 +1214,131 @@ httpd_handle_t start_webserver()
             g_camera_frame.frame_mutex = xSemaphoreCreateMutex();
         }
         
-        // カメラ機能を完全に無効化 - テストパターンのみ使用
-        ESP_LOGI(TAG, "Camera initialization SKIPPED - test pattern mode only");
-        ESP_LOGI(TAG, "Real camera streaming disabled by user request");
+        // カメラ機能を有効化
+        ESP_LOGI(TAG, "Camera initialization starting...");
         
-        // JPEGエンコーダーも無効化（テストパターンには不要）
-        ESP_LOGI(TAG, "JPEG encoder initialization SKIPPED - not needed for test patterns");
+        // ESP32P4 Video systemを初期化（hal_cameraと同じ方法）
+        ESP_LOGI(TAG, "Initializing ESP32P4 V4L2 camera system");
         
-        // カメラ自動取得タスクも無効化
-        ESP_LOGI(TAG, "Camera auto capture and direct capture tasks DISABLED");
-        ESP_LOGI(TAG, "Web streaming will show test patterns only");
+        if (!g_camera_frame.v4l2_camera_initialized) {
+            // hal_cameraと同じCSI設定を使用
+            esp_video_init_csi_config_t csi_config = {
+                .sccb_config = {
+                    .init_sccb  = false,
+                    .i2c_handle = bsp_i2c_get_handle(),
+                    .freq       = 400000,
+                },
+                .reset_pin = -1,
+                .pwdn_pin  = -1,
+            };
+            
+            esp_video_init_config_t cam_config = {
+                .csi  = &csi_config,
+                .dvp  = NULL,
+                .jpeg = NULL,
+                .isp  = NULL
+            };
+            
+            ESP_LOGI(TAG, "Initializing ESP video system...");
+            esp_err_t video_init_result = esp_video_init(&cam_config);
+            if (video_init_result != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to initialize ESP video system: %s", esp_err_to_name(video_init_result));
+                g_camera_frame.v4l2_camera_initialized = false;
+                g_camera_frame.camera_initialized = false;
+                g_camera_frame.camera_running = false;
+            } else {
+                ESP_LOGI(TAG, "ESP video system initialized successfully");
+                g_camera_frame.v4l2_camera_initialized = true;
+            }
+        }
+        
+        // カメラの初期化
+        int camera_fd = -1;
+        if (g_camera_frame.v4l2_camera_initialized) {
+            camera_fd = wifi_video_open(CAM_DEV_PATH, EXAMPLE_VIDEO_FMT_RGB565);
+        }
+        
+        if (camera_fd < 0) {
+            ESP_LOGE(TAG, "Failed to open camera");
+        } else {
+            ESP_LOGI(TAG, "Camera opened successfully, fd: %d", camera_fd);
+            g_camera_frame.camera_fd = camera_fd;
+            
+            // V4L2カメラ構造体を初期化
+            ESP_LOGI(TAG, "Initializing camera structure...");
+            esp_err_t cam_init_result = wifi_new_cam(camera_fd, &g_camera_frame.v4l2_camera);
+            if (cam_init_result != ESP_OK) {
+                ESP_LOGE(TAG, "Failed to initialize camera: %s", esp_err_to_name(cam_init_result));
+                close(camera_fd);
+                g_camera_frame.camera_fd = -1;
+                g_camera_frame.v4l2_camera_initialized = false;
+            } else {
+                // PPA（Picture Processing Accelerator）を初期化
+                ppa_client_config_t ppa_config = {
+                    .oper_type = PPA_OPERATION_SRM,
+                    .max_pending_trans_num = 1,
+                    .data_burst_length = PPA_DATA_BURST_LENGTH_128
+                };
+                esp_err_t ppa_result = ppa_register_client(&ppa_config, &g_camera_frame.ppa_handle);
+                if (ppa_result != ESP_OK) {
+                    ESP_LOGE(TAG, "Failed to register PPA client: %s", esp_err_to_name(ppa_result));
+                }
+                
+                g_camera_frame.camera_initialized = true;
+                g_camera_frame.camera_running = true;
+                
+                ESP_LOGI(TAG, "V4L2 camera system initialized successfully - Real camera ready!");
+                ESP_LOGI(TAG, "Camera format: %" PRIu32 "x%" PRIu32 ", pixel_format: 0x%" PRIx32, 
+                        g_camera_frame.v4l2_camera->width, g_camera_frame.v4l2_camera->height, 
+                        g_camera_frame.v4l2_camera->pixel_format);
+            }
+        }
+        
+        // JPEGエンコーダーの初期化
+        jpeg_encoder_handle_t jpeg_handle = NULL;
+        jpeg_encode_engine_cfg_t jpeg_engine_cfg = {
+            .intr_priority = 0,
+            .timeout_ms = 40,
+        };
+        ESP_ERROR_CHECK(jpeg_new_encoder_engine(&jpeg_engine_cfg, &jpeg_handle));
+        g_camera_frame.jpeg_handle = jpeg_handle;
+        ESP_LOGI(TAG, "JPEG encoder initialized");
+        
+        // JPEGエンコード用のアライメントされたバッファを割り当て
+        stored_jpeg_buffer_size = 1024 * 1024; // 1MB
+        ESP_LOGI(TAG, "Allocating JPEG encoder memory: %d bytes", (int)stored_jpeg_buffer_size);
+        
+        // jpeg_alloc_encoder_memの正しい使用法
+        jpeg_encode_memory_alloc_cfg_t mem_cfg = {
+            .buffer_direction = JPEG_ENC_ALLOC_OUTPUT_BUFFER
+        };
+        size_t actual_size = 0;
+        stored_jpeg = (uint8_t*)jpeg_alloc_encoder_mem(stored_jpeg_buffer_size, &mem_cfg, &actual_size);
+        
+        if (stored_jpeg == NULL) {
+            ESP_LOGE(TAG, "Failed to allocate JPEG encoder memory");
+            // フォールバックとして通常のmallocを試す
+            stored_jpeg = (uint8_t*)malloc(stored_jpeg_buffer_size);
+            if (stored_jpeg == NULL) {
+                ESP_LOGE(TAG, "Failed to allocate JPEG encoder memory with malloc as well");
+                stored_jpeg_buffer_size = 0;
+            } else {
+                ESP_LOGW(TAG, "Using malloc for JPEG encoder memory (may have alignment issues)");
+            }
+        } else {
+            stored_jpeg_buffer_size = actual_size;  // 実際に割り当てられたサイズを使用
+            ESP_LOGI(TAG, "JPEG encoder memory allocated successfully: %d bytes", (int)stored_jpeg_buffer_size);
+        }
+        
+        // カメラ自動取得タスクを開始
+        g_camera_frame.auto_capture_enabled = true;
+        xTaskCreate(camera_auto_capture_task, "camera_auto_capture", 4096, NULL, 5, NULL);
+        ESP_LOGI(TAG, "Camera auto capture task started");
+        
+        ESP_LOGI(TAG, "WiFi AP and streaming server started - REAL CAMERA mode");
+        ESP_LOGI(TAG, "Camera streaming enabled - web page will show real camera images");
     }
+    
     return server;
 }
 
@@ -1103,19 +1371,30 @@ static void wifi_ap_test_task(void* param)
 {
     wifi_init_softap();
     
-    // カメラストリーミング機能を無効化 - テストパターンのみ使用
-    ESP_LOGI(TAG, "Camera streaming DISABLED - using test patterns only");
-    ESP_LOGI(TAG, "Real camera initialization and streaming are disabled by user request");
+    // カメラストリーミング機能を有効化
+    ESP_LOGI(TAG, "Camera streaming ENABLED - real camera mode");
+    ESP_LOGI(TAG, "Real camera initialization and streaming are enabled");
     
     start_webserver();
-    ESP_LOGI(TAG, "WiFi AP and streaming server started - TEST PATTERN ONLY mode");
+    ESP_LOGI(TAG, "WiFi AP and streaming server started - REAL CAMERA mode");
     
-    ESP_LOGI(TAG, "Camera streaming disabled - web page will show test patterns instead of real camera");
+    ESP_LOGI(TAG, "Camera streaming enabled - web page will show real camera images");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
     }
     vTaskDelete(NULL);
+}
+
+// JPEGエンコーダーメモリを解放する関数
+void cleanup_jpeg_encoder() {
+    if (stored_jpeg != nullptr) {
+        free(stored_jpeg);
+        stored_jpeg = nullptr;
+        stored_jpeg_size = 0;
+        stored_jpeg_buffer_size = 0;
+        ESP_LOGI(TAG, "JPEG encoder memory freed");
+    }
 }
 
 bool HalEsp32::wifi_init()
