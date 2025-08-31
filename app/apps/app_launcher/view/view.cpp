@@ -222,7 +222,7 @@ void LauncherView::init()
             }
             else if (strcmp(button_text, "オンライン") == 0) {
                 main_text = "オンライン中です";
-                sub_text = "（オンライン会議・授業中）";
+                sub_text = "（オンライン会議/授業中）";
                 text_color = 0xAB47BC; // 明るい紫（グレー背景で見やすい）
             }
             

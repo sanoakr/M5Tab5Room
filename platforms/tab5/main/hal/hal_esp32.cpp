@@ -13,6 +13,8 @@ extern "C" {
 #include <freertos/task.h>
 #include <bsp/m5stack_tab5.h>
 #include <lv_demos.h>
+#include <time.h>
+#include <stdlib.h>
 #include <esp_netif.h>
 
 extern esp_lcd_touch_handle_t _lcd_touch_handle;
@@ -48,6 +50,11 @@ static void lvgl_read_cb(lv_indev_t* indev, lv_indev_data_t* data)
 void HalEsp32::init()
 {
     mclog::tagInfo(_tag, "init");
+
+    // 方針A: 端末のローカルタイムゾーンをJSTに設定
+    // これにより、mktime() がRTCのJST時刻を正しくUTCエポックへ変換する
+    setenv("TZ", "JST-9", 1);
+    tzset();
 
     mclog::tagInfo(_tag, "camera init");
     bsp_cam_osc_init();
