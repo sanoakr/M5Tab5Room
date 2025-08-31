@@ -14,6 +14,7 @@
 #include <smooth_ui_toolkit.h>
 #include <smooth_lvgl.h>
 #include <apps/utils/audio/audio.h>
+#include <shared/shared.h>
 
 // WiFi関数はHAL経由で呼び出す
 
@@ -252,5 +253,24 @@ void LauncherView::update()
 
     for (auto& panel : _panels) {
         panel->update(_is_stacked);
+    }
+
+    // Webサーバからのリモート更新要求を適用
+    shared_data::SharedData_t::RoomStatus st;
+    bool applied = false;
+    uint32_t last_color = 0xFFFFFF;
+    while (TryDequeueRoomStatus(st)) {
+        if (_label_main && _label_sub1) {
+            lv_label_set_text(_label_main, st.main_text.c_str());
+            lv_obj_set_style_text_color(_label_main, lv_color_hex(st.color), 0);
+            lv_label_set_text(_label_sub1, st.sub_text.c_str());
+            lv_obj_set_style_text_color(_label_sub1, lv_color_hex(st.color), 0);
+            applied = true;
+            last_color = st.color;
+        }
+    }
+    // 反映後、Webページ側の表示もHAL経由で同期
+    if (applied) {
+        GetHAL()->updateWebPageStatus(lv_label_get_text(_label_main), lv_label_get_text(_label_sub1), last_color);
     }
 }

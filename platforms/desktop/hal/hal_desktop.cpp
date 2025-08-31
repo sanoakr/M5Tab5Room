@@ -212,3 +212,17 @@ void HalDesktop::uartMonitorSend(std::string msg, bool newLine)
         is_test_thread_running = false;
     }).detach();
 }
+
+/* -------------------------------------------------------------------------- */
+/*                              Room sign status                              */
+/* -------------------------------------------------------------------------- */
+void HalDesktop::updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color)
+{
+    // 実機(TAB5)では Wi-Fi モジュールがHTTPページへ反映する。
+    // デスクトップ環境では副作用は持たず、受け取った内容をログに記録するのみ。
+    mclog::tagInfo(_tag,
+                   "ルームサイン更新: main='{}' sub='{}' 色=# {:06X}",
+                   main_status ? main_status : "",
+                   sub_status ? sub_status : "",
+                   color);
+}

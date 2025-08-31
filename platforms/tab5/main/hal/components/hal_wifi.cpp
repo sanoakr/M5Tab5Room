@@ -35,8 +35,12 @@
 #include <inttypes.h>
 #include <esp_pm.h>
 #include <esp_sleep.h>
+#include "shared/shared.h"
 
 #define TAG "wifi"
+
+// Forward declaration for room sign updater used below
+extern void updateRoomSignStatus(const char* main_status, const char* sub_status, uint32_t color);
 
 // hal_cameraと同じV4L2カメラ定義
 #define EXAMPLE_VIDEO_BUFFER_COUNT 2
@@ -995,7 +999,7 @@ esp_err_t image_file_handler(httpd_req_t* req)
     }
 }
 
-// ステータス更新API
+// ステータス更新API（GET: 現在値取得）
 esp_err_t status_api_handler(httpd_req_t* req)
 {
     if (g_status_data.status_mutex && xSemaphoreTake(g_status_data.status_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
@@ -1022,6 +1026,120 @@ esp_err_t status_api_handler(httpd_req_t* req)
     
     httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Status mutex error");
     return ESP_FAIL;
+}
+
+// 受信した mode に応じてメイン画面相当の処理（ステータス更新）を適用
+static void apply_status_mode(const char* mode)
+{
+    if (!mode) return;
+
+    const char* main_text = "";
+    const char* sub_text  = "";
+    uint32_t color        = 0xFFFFFF;
+
+    // view.cpp のボタンに合わせたマッピング
+    if (strcmp(mode, "present") == 0) {
+        main_text = "在室中です";
+        sub_text  = "";
+        color     = 0x66BB6A; // 緑
+    } else if (strcmp(mode, "absent") == 0) {
+        main_text = "不在です";
+        sub_text  = "（学外にいます）";
+        color     = 0xEF5350; // 赤
+    } else if (strcmp(mode, "campus") == 0) {
+        main_text = "学内にいます";
+        sub_text  = "";
+        color     = 0xFFB74D; // オレンジ
+    } else if (strcmp(mode, "meeting") == 0) {
+        main_text = "ミーティング中";
+        sub_text  = "（在室しています）";
+        color     = 0x42A5F5; // 青
+    } else if (strcmp(mode, "online") == 0) {
+        main_text = "オンライン中です";
+        sub_text  = "（オンライン会議・授業中）";
+        color     = 0xAB47BC; // 紫
+    } else {
+        ESP_LOGW(TAG, "Unknown status mode: %s", mode);
+        return;
+    }
+
+    // UI層で処理させるため、共有キューに投入（UIが適用後にHAL経由でWebへ反映）
+    shared_data::SharedData_t::RoomStatus st{main_text, sub_text, color};
+    EnqueueRoomStatus(st);
+}
+
+// ステータス更新API（POST: 状態変更）
+esp_err_t status_api_post_handler(httpd_req_t* req)
+{
+    // CORS 許可
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Headers", "Content-Type");
+
+    // JSON もしくは form-urlencoded の簡易パース
+    int total_len = req->content_len;
+    if (total_len <= 0 || total_len > 512) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid content length");
+        return ESP_FAIL;
+    }
+
+    char buf[513];
+    int received = 0;
+    while (received < total_len) {
+        int r = httpd_req_recv(req, buf + received, total_len - received);
+        if (r <= 0) {
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read body");
+            return ESP_FAIL;
+        }
+        received += r;
+    }
+    buf[received] = '\0';
+
+    // mode=present あるいは {"mode":"present"} に対応
+    const char* mode_value = nullptr;
+    if (strstr(buf, "\"mode\"")) {
+        // とても簡易な JSON 抽出
+        char* p = strstr(buf, "\"mode\"");
+        p       = strchr(p, ':');
+        if (p) {
+            // コロンの後の引用符を探す
+            char* q1 = strchr(p, '"');
+            if (q1) {
+                char* q2 = strchr(q1 + 1, '"');
+                if (q2 && (q2 - q1 - 1) < 32) {
+                    static char mode_buf[32];
+                    int len = q2 - q1 - 1;
+                    strncpy(mode_buf, q1 + 1, len);
+                    mode_buf[len] = '\0';
+                    mode_value     = mode_buf;
+                }
+            }
+        }
+    }
+    if (!mode_value) {
+        // URL エンコード形式 mode=...
+        char* m = strstr(buf, "mode=");
+        if (m) {
+            m += 5;
+            static char mode_buf2[32];
+            int i = 0;
+            while (*m && *m != '&' && i < (int)sizeof(mode_buf2) - 1) {
+                mode_buf2[i++] = *m++;
+            }
+            mode_buf2[i] = '\0';
+            mode_value   = mode_buf2;
+        }
+    }
+
+    if (!mode_value) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Missing mode");
+        return ESP_FAIL;
+    }
+
+    apply_status_mode(mode_value);
+
+    // 現在値を返す
+    return status_api_handler(req);
 }
 
 // HTTP 处理函数
@@ -1108,8 +1226,37 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                     font-size: 24px;
                     color: #666;
                 }
+                .button-bar {
+                    margin-top: 16px;
+                    display: flex;
+                    gap: 8px;
+                    flex-wrap: wrap;
+                    justify-content: center;
+                }
+                .btn {
+                    border: none;
+                    color: #fff;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    font-size: 16px;
+                    cursor: pointer;
+                    min-width: 88px;
+                }
+                .btn-green { background: #4CAF50; border: 2px solid #2E7D32; }
+                .btn-red { background: #F44336; border: 2px solid #C62828; }
+                .btn-orange { background: #FF9800; border: 2px solid #E65100; }
+                .btn-blue { background: #2196F3; border: 2px solid #1565C0; }
+                .btn-purple { background: #9C27B0; border: 2px solid #6A1B9A; }
             </style>
             <script>
+                function setStatus(mode) {
+                    // UI層に適用依頼だけを送る。Web上の表示はポーリングで反映。
+                    fetch('/api/status', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ mode })
+                    }).catch(err => console.error('Set status error:', err));
+                }
                 function captureSnapshot() {
                     const img = document.getElementById('camera-snapshot');
                     const info = document.getElementById('snapshot-info');
@@ -1173,6 +1320,13 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 <div id="status-name" class="status-name">さのは（おそらく）</div>
                 <div id="status-main" class="status-main">不在です</div>
                 <div id="status-sub" class="status-sub">（学外にいます）</div>
+                <div class="button-bar">
+                    <button class="btn btn-green" onclick="setStatus('present')">在室</button>
+                    <button class="btn btn-red" onclick="setStatus('absent')">不在</button>
+                    <button class="btn btn-orange" onclick="setStatus('campus')">学内</button>
+                    <button class="btn btn-blue" onclick="setStatus('meeting')">ミーティング</button>
+                    <button class="btn btn-purple" onclick="setStatus('online')">オンライン</button>
+                </div>
             </div>
         </body>
         </html>
@@ -1189,6 +1343,7 @@ httpd_uri_t camera_stream_uri = {.uri = "/stream", .method = HTTP_GET, .handler 
 httpd_uri_t camera_capture_uri = {.uri = "/camera_capture", .method = HTTP_GET, .handler = camera_capture_handler, .user_ctx = nullptr};
 httpd_uri_t image_file_uri = {.uri = "/snapshot.jpg", .method = HTTP_GET, .handler = image_file_handler, .user_ctx = nullptr};
 httpd_uri_t status_api_uri = {.uri = "/api/status", .method = HTTP_GET, .handler = status_api_handler, .user_ctx = nullptr};
+httpd_uri_t status_api_post_uri = {.uri = "/api/status", .method = HTTP_POST, .handler = status_api_post_handler, .user_ctx = nullptr};
 
 // 启动 Web Server
 httpd_handle_t start_webserver()
@@ -1197,12 +1352,13 @@ httpd_handle_t start_webserver()
     config.max_uri_handlers = 8; // ハンドラ数を増やす
     httpd_handle_t server = nullptr;
 
-    if (httpd_start(&server, &config) == ESP_OK) {
-        httpd_register_uri_handler(server, &hello_uri);
-        httpd_register_uri_handler(server, &camera_stream_uri);
-        httpd_register_uri_handler(server, &camera_capture_uri);
-        httpd_register_uri_handler(server, &image_file_uri);
-        httpd_register_uri_handler(server, &status_api_uri);
+        if (httpd_start(&server, &config) == ESP_OK) {
+            httpd_register_uri_handler(server, &hello_uri);
+            httpd_register_uri_handler(server, &camera_stream_uri);
+            httpd_register_uri_handler(server, &camera_capture_uri);
+            httpd_register_uri_handler(server, &image_file_uri);
+            httpd_register_uri_handler(server, &status_api_uri);
+            httpd_register_uri_handler(server, &status_api_post_uri);
         
         // ステータス管理用のmutex初期化
         if (g_status_data.status_mutex == NULL) {

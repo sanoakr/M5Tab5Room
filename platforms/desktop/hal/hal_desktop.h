@@ -62,6 +62,9 @@ public:
 
     void uartMonitorSend(std::string msg, bool newLine = true) override;
 
+    // ルームサイン用のステータス更新（デスクトップではログ出力のみ）
+    void updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color) override;
+
 private:
     uint8_t _current_lcd_brightness = 100;
     uint8_t _current_speaker_volume = 20;
