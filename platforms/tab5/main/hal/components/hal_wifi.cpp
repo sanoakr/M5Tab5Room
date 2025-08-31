@@ -1156,97 +1156,102 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 body {
                     display: flex;
                     flex-direction: column;
-                    justify-content: center;
+                    justify-content: flex-start;
                     align-items: center;
-                    height: 100vh;
+                    min-height: 100vh;
                     margin: 0;
-                    font-family: sans-serif;
-                    background-color: #f0f0f0;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                    background-color: #f7f7f7;
+                    padding: 8px 6px;
                 }
                 h1 {
-                    font-size: 48px;
+                    font-size: 20px;
                     color: #333;
-                    margin: 0;
+                    margin: 6px 0 8px 0;
                 }
                 p {
-                    font-size: 18px;
+                    font-size: 12px;
                     color: #666;
-                    margin-top: 10px;
-                }
-                .stream-container {
-                    display: flex;
-                    flex-direction: column;
-                    align-items: center;
-                    justify-content: center;
-                    margin-top: 32px;
-                    background: #fff;
-                    border-radius: 16px;
-                    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
-                    padding: 24px 32px;
+                    margin: 4px 0 8px 0;
                 }
                 #camera-snapshot {
-                    max-width: 90vw;
-                    max-height: 60vh;
-                    width: 320px;
-                    height: 240px;
-                    border: 2px solid #333;
-                    border-radius: 8px;
-                    background: #f5f5f5;
+                    max-width: 92vw;
+                    width: 280px;
+                    height: 180px;
+                    border: 1px solid #333;
+                    border-radius: 6px;
+                    background: #f0f0f0;
                     display: block;
-                    margin-bottom: 16px;
+                    margin-bottom: 8px;
                     object-fit: cover;
                 }
                 .snapshot-info {
-                    font-size: 12px;
+                    font-size: 11px;
                     color: #666;
                     text-align: center;
-                    margin-top: 8px;
+                    margin-top: 4px;
                 }
                 .status-display {
-                    margin-top: 32px;
-                    padding: 24px 32px;
+                    width: 100%;
+                    max-width: 420px;
+                    margin-top: 8px;
+                    padding: 10px 14px;
                     background: #fff;
-                    border-radius: 16px;
-                    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+                    border-radius: 10px;
+                    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
                     text-align: center;
-                    max-width: 600px;
                 }
                 .status-name {
-                    font-size: 20px;
+                    font-size: 14px;
                     color: #666;
-                    margin-bottom: 16px;
+                    margin-bottom: 6px;
                 }
                 .status-main {
-                    font-size: 48px;
+                    font-size: 28px;
                     font-weight: bold;
-                    margin-bottom: 12px;
+                    margin-bottom: 6px;
                     color: #EF5350;
                 }
                 .status-sub {
-                    font-size: 24px;
+                    font-size: 16px;
                     color: #666;
                 }
                 .button-bar {
-                    margin-top: 16px;
+                    margin-top: 10px;
                     display: flex;
-                    gap: 8px;
+                    gap: 6px;
                     flex-wrap: wrap;
                     justify-content: center;
+                    width: 100%;
+                    max-width: 420px;
                 }
                 .btn {
                     border: none;
                     color: #fff;
-                    padding: 8px 12px;
+                    padding: 6px 10px;
                     border-radius: 8px;
-                    font-size: 16px;
+                    font-size: 14px;
                     cursor: pointer;
-                    min-width: 88px;
+                    min-width: 72px;
                 }
                 .btn-green { background: #4CAF50; border: 2px solid #2E7D32; }
                 .btn-red { background: #F44336; border: 2px solid #C62828; }
                 .btn-orange { background: #FF9800; border: 2px solid #E65100; }
                 .btn-blue { background: #2196F3; border: 2px solid #1565C0; }
                 .btn-purple { background: #9C27B0; border: 2px solid #6A1B9A; }
+                .camera-card {
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    width: 100%;
+                    max-width: 420px;
+                    margin-top: 8px;
+                    background: #fff;
+                    border-radius: 10px;
+                    box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+                    padding: 10px 14px;
+                }
             </style>
             <script>
                 function setStatus(mode) {
@@ -1307,26 +1312,33 @@ esp_err_t hello_get_handler(httpd_req_t* req)
             </script>
         </head>
         <body>
+            <!-- タイトル -->
             <h1>Tab5 RoomSign</h1>
-            <p>From M5StackTab5</p>
-            <div class="stream-container">
-                <img id="camera-snapshot" alt="Camera Snapshot" src="" style="background: linear-gradient(45deg, #ff6b6b, #4ecdc4); display: flex; align-items: center; justify-content: center;">
-                <div id="snapshot-info" class="snapshot-info">ページ読み込み時のスナップショットを取得中...</div>
-                <button onclick="captureSnapshot()" style="margin-top: 12px; padding: 8px 16px; background: #1976d2; color: white; border: none; border-radius: 4px; cursor: pointer;">
-                    📷 新しいスナップショット
-                </button>
-            </div>
+            <p style="margin-top:-2px;">From M5StackTab5</p>
+
+            <!-- メッセージ -->
             <div class="status-display">
                 <div id="status-name" class="status-name">さのは（おそらく）</div>
                 <div id="status-main" class="status-main">不在です</div>
                 <div id="status-sub" class="status-sub">（学外にいます）</div>
-                <div class="button-bar">
-                    <button class="btn btn-green" onclick="setStatus('present')">在室</button>
-                    <button class="btn btn-red" onclick="setStatus('absent')">不在</button>
-                    <button class="btn btn-orange" onclick="setStatus('campus')">学内</button>
-                    <button class="btn btn-blue" onclick="setStatus('meeting')">ミーティング</button>
-                    <button class="btn btn-purple" onclick="setStatus('online')">オンライン</button>
-                </div>
+            </div>
+
+            <!-- ボタン -->
+            <div class="button-bar">
+                <button class="btn btn-green" onclick="setStatus('present')">在室</button>
+                <button class="btn btn-red" onclick="setStatus('absent')">不在</button>
+                <button class="btn btn-orange" onclick="setStatus('campus')">学内</button>
+                <button class="btn btn-blue" onclick="setStatus('meeting')">ミーティング</button>
+                <button class="btn btn-purple" onclick="setStatus('online')">オンライン</button>
+            </div>
+
+            <!-- カメラ画像 -->
+            <div class="camera-card">
+                <img id="camera-snapshot" alt="Camera Snapshot" src="" style="background: linear-gradient(45deg, #ff6b6b, #4ecdc4); display: flex; align-items: center; justify-content: center;">
+                <div id="snapshot-info" class="snapshot-info">ページ読み込み時のスナップショットを取得中...</div>
+                <button onclick="captureSnapshot()" style="margin-top: 6px; padding: 6px 10px; background: #1976d2; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                    📷 新しいスナップショット
+                </button>
             </div>
         </body>
         </html>
