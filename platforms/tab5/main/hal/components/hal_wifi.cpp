@@ -1302,12 +1302,14 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 }
                 
                 document.addEventListener('DOMContentLoaded', function() {
-                    // ページ読み込み時に静止画を取得
-                    captureSnapshot();
-                    
-                    // Update status every 2 seconds
+                    // 初回更新
                     updateStatus();
-                    setInterval(updateStatus, 2000);
+                    captureSnapshot();
+                    // 5秒ごとにステータスとカメラ画像を更新
+                    setInterval(function(){
+                        updateStatus();
+                        captureSnapshot();
+                    }, 5000);
                 });
             </script>
         </head>
@@ -1332,13 +1334,10 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 <button class="btn btn-purple" onclick="setStatus('online')">オンライン</button>
             </div>
 
-            <!-- カメラ画像 -->
+            <!-- カメラ画像（5秒ごとに自動更新） -->
             <div class="camera-card">
                 <img id="camera-snapshot" alt="Camera Snapshot" src="" style="background: linear-gradient(45deg, #ff6b6b, #4ecdc4); display: flex; align-items: center; justify-content: center;">
-                <div id="snapshot-info" class="snapshot-info">ページ読み込み時のスナップショットを取得中...</div>
-                <button onclick="captureSnapshot()" style="margin-top: 6px; padding: 6px 10px; background: #1976d2; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
-                    📷 新しいスナップショット
-                </button>
+                <div id="snapshot-info" class="snapshot-info">スナップショット自動更新中...</div>
             </div>
         </body>
         </html>
