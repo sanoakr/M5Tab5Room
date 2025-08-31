@@ -35,6 +35,7 @@
 #include <inttypes.h>
 #include <esp_pm.h>
 #include <esp_sleep.h>
+#include <sys/time.h>
 #include "shared/shared.h"
 
 #define TAG "wifi"
@@ -165,9 +166,12 @@ static camera_frame_t g_camera_frame = {
     .processed_frame_size = 0
 };
 
-#define WIFI_SSID    "M5Tab5-UserDemo-WiFi"
-#define WIFI_PASS    ""
+#define WIFI_AP_FALLBACK_SSID    "M5Tab5-UserDemo-WiFi"
+#define WIFI_AP_FALLBACK_PASS    ""
 #define MAX_STA_CONN 4
+
+// ビルド時に生成された Wi-Fi 認証情報
+#include "wifi_credentials.h"
 #define JPEG_ENC_QUALITY 60  // 電力消費軽減のため品質を下げる
 #define PART_BOUNDARY "123456789000000000000987654321"
 
@@ -949,7 +953,9 @@ esp_err_t camera_capture_handler(httpd_req_t* req)
     
     if (ret == ESP_OK && image_size > 0) {
         // 成功レスポンスを返す（画像ファイルパスを含む）
-        int64_t timestamp = esp_timer_get_time() / 1000;
+        struct timeval tv = {};
+        gettimeofday(&tv, NULL);
+        int64_t timestamp = (int64_t)tv.tv_sec * 1000LL + (tv.tv_usec / 1000);
         char json_response[256];
         snprintf(json_response, sizeof(json_response), 
                 "{"
@@ -1220,7 +1226,7 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                     margin-top: 10px;
                     display: flex;
                     gap: 6px;
-                    flex-wrap: wrap;
+                    flex-wrap: nowrap; /* 一列固定 */
                     justify-content: center;
                     width: 100%;
                     max-width: 420px;
@@ -1228,11 +1234,14 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                 .btn {
                     border: none;
                     color: #fff;
-                    padding: 6px 10px;
+                    padding: 6px 6px; /* 横パディング縮小 */
                     border-radius: 8px;
-                    font-size: 14px;
+                    font-size: 13px;  /* 文字サイズ微縮小 */
                     cursor: pointer;
-                    min-width: 72px;
+                    box-sizing: border-box; /* 幅計算にボーダー含める */
+                    text-align: center;
+                    white-space: nowrap;
+                    flex: 0 0 calc((100% - 24px) / 5); /* 5等分（gap 6px * 4 = 24px）*/
                 }
                 .btn-green { background: #4CAF50; border: 2px solid #2E7D32; }
                 .btn-red { background: #F44336; border: 2px solid #C62828; }
@@ -1274,8 +1283,19 @@ esp_err_t hello_get_handler(httpd_req_t* req)
                             if (data.success) {
                                 // JPEGファイルのURLにタイムスタンプを追加してキャッシュを回避
                                 img.src = data.image_url + '?t=' + data.timestamp;
-                                const now = new Date(data.timestamp);
-                                info.textContent = `スナップショット撮影時刻: ${now.toLocaleString('ja-JP')}`;
+                                const now = new Date(Number(data.timestamp));
+                                // JST(+09:00)での表示を明示
+                                const jst = now.toLocaleString('ja-JP', {
+                                    timeZone: 'Asia/Tokyo',
+                                    year: 'numeric',
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                    second: '2-digit',
+                                    hour12: false,
+                                });
+                                info.textContent = `スナップショット撮影時刻: ${jst}`;
                             } else {
                                 info.textContent = 'スナップショット取得に失敗しました';
                             }
@@ -1521,9 +1541,9 @@ void wifi_init_softap()
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
 
     wifi_config_t wifi_config = {};
-    std::strncpy(reinterpret_cast<char*>(wifi_config.ap.ssid), WIFI_SSID, sizeof(wifi_config.ap.ssid));
-    std::strncpy(reinterpret_cast<char*>(wifi_config.ap.password), WIFI_PASS, sizeof(wifi_config.ap.password));
-    wifi_config.ap.ssid_len       = std::strlen(WIFI_SSID);
+    std::strncpy(reinterpret_cast<char*>(wifi_config.ap.ssid), WIFI_AP_FALLBACK_SSID, sizeof(wifi_config.ap.ssid));
+    std::strncpy(reinterpret_cast<char*>(wifi_config.ap.password), WIFI_AP_FALLBACK_PASS, sizeof(wifi_config.ap.password));
+    wifi_config.ap.ssid_len       = std::strlen(WIFI_AP_FALLBACK_SSID);
     wifi_config.ap.max_connection = MAX_STA_CONN;
     wifi_config.ap.authmode       = WIFI_AUTH_OPEN;
 
@@ -1531,21 +1551,77 @@ void wifi_init_softap()
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &wifi_config));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    ESP_LOGI(TAG, "Wi-Fi AP started. SSID:%s password:%s", WIFI_SSID, WIFI_PASS);
+    ESP_LOGI(TAG, "Wi-Fi AP (fallback) started. SSID:%s password:%s", WIFI_AP_FALLBACK_SSID, WIFI_AP_FALLBACK_PASS);
 }
 
-static void wifi_ap_test_task(void* param)
+// 既存APへ接続（STA）
+static void wifi_init_station(const char* ssid, const char* pass)
 {
-    wifi_init_softap();
-    
-    // カメラストリーミング機能を有効化
-    ESP_LOGI(TAG, "Camera streaming ENABLED - real camera mode");
-    ESP_LOGI(TAG, "Real camera initialization and streaming are enabled");
-    
+    esp_err_t err;
+    err = esp_netif_init();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(err);
+    }
+    err = esp_event_loop_create_default();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(err);
+    }
+
+    esp_netif_create_default_wifi_sta();
+
+    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
+    err = esp_wifi_init(&cfg);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(err);
+    }
+
+    wifi_config_t wifi_config = {};
+    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.ssid), ssid, sizeof(wifi_config.sta.ssid));
+    std::strncpy(reinterpret_cast<char*>(wifi_config.sta.password), pass ? pass : "", sizeof(wifi_config.sta.password));
+    wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
+    wifi_config.sta.sae_pwe_h2e        = WPA3_SAE_PWE_BOTH;
+
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config));
+    err = esp_wifi_start();
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
+        ESP_ERROR_CHECK(err);
+    }
+
+    // ハンドラ: STA_START で connect、GOT_IP でIP表示
+    esp_event_handler_instance_t any_id, got_ip;
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(WIFI_EVENT, ESP_EVENT_ANY_ID, [](void* arg, esp_event_base_t, int32_t id, void*) {
+        if (id == WIFI_EVENT_STA_START) {
+            esp_wifi_connect();
+            ESP_LOGI(TAG, "Wi-Fi STA start, connecting...");
+        } else if (id == WIFI_EVENT_STA_DISCONNECTED) {
+            ESP_LOGW(TAG, "Wi-Fi disconnected, reconnecting...");
+            esp_wifi_connect();
+        }
+    }, nullptr, &any_id));
+    ESP_ERROR_CHECK(esp_event_handler_instance_register(IP_EVENT, IP_EVENT_STA_GOT_IP, [](void*, esp_event_base_t, int32_t, void* data) {
+        auto* event = (ip_event_got_ip_t*)data;
+        ESP_LOGI(TAG, "Got IP: " IPSTR, IP2STR(&event->ip_info.ip));
+        // NTP 同期は一旦無効化
+    }, nullptr, &got_ip));
+
+    ESP_LOGI(TAG, "Wi-Fi STA connecting to SSID:%s", ssid);
+}
+
+static void wifi_connect_task(void* param)
+{
+    const char* ssid = WIFI_BUILD_SSID;
+    const char* pass = WIFI_BUILD_PASS;
+    if (ssid && ssid[0] != '\0') {
+        wifi_init_station(ssid, pass);
+    } else {
+        ESP_LOGW(TAG, "Falling back to SoftAP mode (no build-time SSID)");
+        wifi_init_softap();
+    }
+
+    // Web サーバ開始
     start_webserver();
-    ESP_LOGI(TAG, "WiFi AP and streaming server started - REAL CAMERA mode");
-    
-    ESP_LOGI(TAG, "Camera streaming enabled - web page will show real camera images");
+    ESP_LOGI(TAG, "Web server started");
 
     while (1) {
         vTaskDelay(pdMS_TO_TICKS(1000));
@@ -1575,7 +1651,7 @@ bool HalEsp32::wifi_init()
     }
     ESP_ERROR_CHECK(ret);
 
-    xTaskCreate(wifi_ap_test_task, "ap", 8192, nullptr, 5, nullptr);
+    xTaskCreate(wifi_connect_task, "wifi", 8192, nullptr, 5, nullptr);
     return true;
 }
 

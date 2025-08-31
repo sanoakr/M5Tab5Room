@@ -107,6 +107,10 @@ void PanelComMonitor::init()
     _btn_com_monitor->onClick().connect([&] {
         audio::play_next_tone_progression();
 
+        // 現在のIPアドレスをトースト表示
+        std::string ip = GetHAL()->getLocalIp();
+        ui::pop_a_toast(std::string("IP: ") + ip, ui::toast_type::info, 2000);
+
         // Create window
         _window = std::make_unique<ComMonitorWindow>();
         _window->init(lv_screen_active());

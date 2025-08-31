@@ -13,6 +13,7 @@ extern "C" {
 #include <freertos/task.h>
 #include <bsp/m5stack_tab5.h>
 #include <lv_demos.h>
+#include <esp_netif.h>
 
 extern esp_lcd_touch_handle_t _lcd_touch_handle;
 
@@ -429,4 +430,21 @@ esp_err_t HalEsp32::startCameraIfNeeded()
 void HalEsp32::onHaiCameraClosed()
 {
     ::onHaiCameraClosed();
+}
+
+std::string HalEsp32::getLocalIp()
+{
+    esp_netif_t* netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (!netif) {
+        netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    }
+    if (netif) {
+        esp_netif_ip_info_t ip;
+        if (esp_netif_get_ip_info(netif, &ip) == ESP_OK) {
+            char buf[16];
+            snprintf(buf, sizeof(buf), IPSTR, IP2STR(&ip.ip));
+            return std::string(buf);
+        }
+    }
+    return std::string("0.0.0.0");
 }

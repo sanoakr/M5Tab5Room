@@ -85,6 +85,7 @@ public:
     
     // WiFi status update function
     void updateWebPageStatus(const char* main_status, const char* sub_status, uint32_t color) override;
+    std::string getLocalIp() override;
 
     bool isSdCardMounted() override;
     std::vector<FileEntry_t> scanSdCard(const std::string& dirPath) override;
