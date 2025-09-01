@@ -3,3 +3,4 @@
 build
 dependencies
 .DS_Store
+platforms/tab5/wifi.conf
