@@ -62,7 +62,6 @@ password=YOUR_WIFI_PASSWORD
 ```
 
 Note: `platforms/tab5/wifi.conf` is ignored by Git to keep credentials out of version control.
-
 ```bash
 idf.py build
 ```
