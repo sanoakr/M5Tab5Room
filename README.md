@@ -46,6 +46,23 @@ cmake .. && make -j8
 cd platforms/tab5
 ```
 
+#### Wi-Fi Config
+
+Before building or flashing, create a local Wi-Fi config file:
+
+```bash
+cp platforms/tab5/wifi.conf.example platforms/tab5/wifi.conf
+```
+
+Then edit `platforms/tab5/wifi.conf` and set your SSID and password:
+
+```
+ssid=YOUR_WIFI_SSID
+password=YOUR_WIFI_PASSWORD
+```
+
+Note: `platforms/tab5/wifi.conf` is ignored by Git to keep credentials out of version control.
+
 ```bash
 idf.py build
 ```
